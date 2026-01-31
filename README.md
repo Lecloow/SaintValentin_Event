@@ -6,6 +6,7 @@ pour run le code:
 Pandas
 Uvicorn
 FastApi
+Openpyxl
 
 ### Build
 
