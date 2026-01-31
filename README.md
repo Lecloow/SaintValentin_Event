@@ -2,6 +2,11 @@
 
 pour run le code:
 
+### Requirements 
+Pandas
+Uvicorn
+FastApi
+
 ### Build
 
 Cloner le repo
