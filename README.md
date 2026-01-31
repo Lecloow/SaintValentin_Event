@@ -2,11 +2,18 @@
 
 pour run le code:
 
+### Build
 
-git clone https://github.com/Lecloow/SaintValentin_Event/
+Cloner le repo
 
-cd SaintValentin_Event/backend
+```bash
+git clone https://github.com/Lecloow/SaintValentin_Event/ && cd SaintValentin_Event/backend
+```
 
+Puis executer cette commande
+
+```bash
 uvicorn main:app --reload
+```
 
-ouvrir un navigateur et aller a l'addresse http://127.0.0.1:8000/docs
+Enfin, ouvrir un navigateur et acceder a http://127.0.0.1:8000/docs
