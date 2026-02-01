@@ -12,6 +12,7 @@ import os
 import smtplib
 import ssl
 import logging
+from xlsxToJson import convert_xlsx_to_json
 
 
 logging.basicConfig(level=logging.INFO)
@@ -105,9 +106,6 @@ def check_code(payload: CodePayload):
 
     return {"user_id": user_id}
 
-
-
-
 # This is a test
 
 
@@ -121,8 +119,10 @@ def generate_unique_password(length: int, cursor: sqlite3.Cursor) -> str:
     raise RuntimeError("Failed to generate a unique password after max attempts")
 
 @app.post("/import")
-def import_users_from_json(json_path: str | None = None, passwd_len: int = 6):
-    path = Path(json_path) if json_path else Path(__file__).resolve().parent / "input.json"
+def import_users_from_json(passwd_len: int = 6):
+    convert_xlsx_to_json()
+    #path = Path(json_path) if json_path else Path(__file__).resolve().parent / "input.json"
+    path = Path(__file__).resolve().parent / 'input.json'
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
 
