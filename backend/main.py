@@ -11,7 +11,6 @@ import secrets
 import os
 import smtplib
 import ssl
-from email.message import EmailMessage
 import logging
 
 
@@ -112,15 +111,12 @@ def check_code(payload: CodePayload):
 # This is a test
 
 
-def generate_unique_password(length: int, cursor: sqlite3.Cursor, seen: set, max_attempts: int = 10000) -> str:
+def generate_unique_password(length: int, cursor: sqlite3.Cursor) -> str:
     chars = string.ascii_lowercase + string.digits
-    for _ in range(max_attempts):
+    for _ in range(10000):
         code = ''.join(secrets.choice(chars) for _ in range(length))
-        if code in seen:
-            continue
         if cursor.execute("SELECT 1 FROM passwords WHERE password = ?", (code,)).fetchone():
             continue
-        seen.add(code)
         return code
     raise RuntimeError("Failed to generate a unique password after max attempts")
 
@@ -129,6 +125,10 @@ def import_users_from_json(json_path: str | None = None, passwd_len: int = 6):
     path = Path(json_path) if json_path else Path(__file__).resolve().parent / "input.json"
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
+
+    cursor.execute("DELETE FROM passwords")
+    cursor.execute("DELETE FROM users")
+    db.commit()
 
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
@@ -142,13 +142,9 @@ def import_users_from_json(json_path: str | None = None, passwd_len: int = 6):
         raise HTTPException(status_code=400, detail="Unsupported JSON format")
 
     # preload existing passwords to avoid duplicates during this run
-    existing_passwords = set(row[0] for row in cursor.execute("SELECT password FROM passwords").fetchall())
-
     inserted = 0
     for u in users:
-        uid = u.get("id") or u.get("ID") or u.get("user_id") or u.get("uid")
-        if not uid:
-            continue
+        id = u.get("id")
 
         first_name = u.get("first_name")
         last_name = u.get("last_name")
@@ -157,107 +153,28 @@ def import_users_from_json(json_path: str | None = None, passwd_len: int = 6):
 
         cursor.execute(
             "INSERT OR REPLACE INTO users (id, first_name, last_name, email, currentClass) VALUES (?, ?, ?, ?, ?)",
-            (str(uid), first_name, last_name, email, currentClass)
+            (id, first_name, last_name, email, currentClass)
         )
 
         # try to generate and insert a unique password, handle rare race conditions
         try_count = 0
         while try_count < 5:
-            code = generate_unique_password(passwd_len, cursor, existing_passwords)
+            code = generate_unique_password(passwd_len, cursor)
             try:
                 cursor.execute(
-                    "INSERT INTO passwords (password, user_id) VALUES (?, ?)",
-                    (code, str(uid))
+                    "INSERT OR REPLACE INTO passwords (password, user_id) VALUES (?, ?)",
+                    (code, id)
                 )
                 break
             except sqlite3.IntegrityError:
-                # concurrent insert may have used the same code; remove from seen and retry
-                existing_passwords.discard(code)
                 try_count += 1
                 continue
         else:
             # give up for this user after retries
-            print(f"Failed to generate unique password for user {uid}")
+            print(f"Failed to generate unique password for user {id}")
             continue
 
         inserted += 1
 
     db.commit()
     return {"imported": inserted, "password_length": passwd_len}
-
-@app.post("/send-passwords-all")
-def send_passwords_all():
-    try:
-        # SMTP configuration from environment
-        smtp_host = os.getenv("SMTP_HOST")
-        smtp_port = int(os.getenv("SMTP_PORT", "587"))
-        smtp_user = os.getenv("SMTP_USER")
-        smtp_pass = os.getenv("SMTP_PASS")
-        smtp_from = os.getenv("SMTP_FROM", smtp_user)
-
-        if not smtp_host or not smtp_user or not smtp_pass:
-            raise HTTPException(status_code=500, detail="SMTP not configured (set SMTP_HOST/SMTP_USER/SMTP_PASS)")
-
-        users = cursor.execute("SELECT id, first_name, last_name, email FROM users").fetchall()
-
-        sent = 0
-        skipped_no_email = 0
-        skipped_no_password = 0
-        errors = []
-
-        context = ssl.create_default_context()
-
-        try:
-            if smtp_port == 465:
-                server = smtplib.SMTP_SSL(smtp_host, smtp_port, context=context)
-            else:
-                server = smtplib.SMTP(smtp_host, smtp_port)
-                server.starttls(context=context)
-            server.login(smtp_user, smtp_pass)
-        except Exception as e:
-            logging.exception("SMTP connection/login failed")
-            raise HTTPException(status_code=500, detail=f"Failed to connect/login to SMTP server: {e}")
-
-        with server:
-            for u in users:
-                uid, first_name, last_name, recipient_email = str(u[0]), u[1], u[2], u[3]
-                if not recipient_email:
-                    skipped_no_email += 1
-                    continue
-
-                pw_row = cursor.execute("SELECT password FROM passwords WHERE user_id = ? LIMIT 1", (uid,)).fetchone()
-                if not pw_row:
-                    skipped_no_password += 1
-                    continue
-                password = pw_row[0]
-
-                msg = EmailMessage()
-                msg["Subject"] = "Your access code"
-                msg["From"] = smtp_from
-                msg["To"] = recipient_email
-                msg.set_content(
-                    f"Hello {first_name} {last_name},\n\n"
-                    f"Your access code is: {password}\n\n"
-                    "Keep it safe.\n"
-                )
-
-                try:
-                    server.send_message(msg)
-                    sent += 1
-                except Exception as e:
-                    logging.exception("Failed to send message to %s", recipient_email)
-                    errors.append({"user_id": uid, "email": recipient_email, "error": str(e)})
-                    continue
-
-        return {
-            "sent": sent,
-            "skipped_no_email": skipped_no_email,
-            "skipped_no_password": skipped_no_password,
-            "errors": errors,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logging.exception("Unhandled error in send_passwords_all")
-        raise HTTPException(status_code=500, detail=str(e))
