@@ -120,8 +120,10 @@ def generate_unique_password(length: int, cursor: sqlite3.Cursor) -> str:
 
 @app.post("/import")
 def import_users_from_json(passwd_len: int = 6):
-    convert_xlsx_to_json()
-    #path = Path(json_path) if json_path else Path(__file__).resolve().parent / "input.json"
+    input_path = Path(__file__).resolve().parent / 'input.xlsx'
+    outpu_path = Path(__file__).resolve().parent / 'input.json'
+    convert_xlsx_to_json(input_path, outpu_path)
+
     path = Path(__file__).resolve().parent / 'input.json'
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
