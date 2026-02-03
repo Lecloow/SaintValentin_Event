@@ -1,0 +1,15 @@
+{
+  "name": "saint-valentin-event-frontend",
+  "version": "1.0.0",
+  "description": "Frontend pour Saint Valentin Event",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0"
+  }
+}
