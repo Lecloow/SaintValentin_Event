@@ -2,7 +2,7 @@ import { ApiService } from './api';
 import { StorageService } from './storage';
 import { LoginPayload } from './types';
 
-class LoginPage {
+export class LoginPage {
   private form: HTMLFormElement | null = null;
   private passwordInput: HTMLInputElement | null = null;
   private resultEl: HTMLElement | null = null;
