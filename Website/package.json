@@ -3,12 +3,14 @@
   "version": "1.0.0",
   "description": "Frontend pour Saint Valentin Event",
   "type": "module",
+  "homepage": "https://lecloow.github.io/SaintValentin_Event/",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
+    "gh-pages": "^6.3.0",
     "typescript": "^5.3.3",
     "vite": "^5.0.0"
   }
