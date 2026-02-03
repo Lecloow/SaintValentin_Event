@@ -13,6 +13,13 @@ import smtplib
 import ssl
 import logging
 from xlsxToJson import convert_xlsx_to_json
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 
 logging.basicConfig(level=logging.INFO)
@@ -43,6 +50,15 @@ CREATE TABLE IF NOT EXISTS users (
     last_name TEXT,
     email TEXT,
     currentClass TEXT
+)
+""")
+
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS matches (
+    id TEXT PRIMARY KEY,
+    day1 TEXT,
+    day2 TEXT,
+    day3 TEXT
 )
 """)
 
@@ -105,8 +121,6 @@ def check_code(payload: CodePayload):
         }
 
     return {"user_id": user_id}
-
-# This is a test
 
 
 def generate_unique_password(length: int, cursor: sqlite3.Cursor) -> str:
@@ -180,3 +194,46 @@ def import_users_from_json(passwd_len: int = 6):
 
     db.commit()
     return {"imported": inserted, "password_length": passwd_len}
+
+
+
+@app.post("/send-emails")
+def sendEmails(destinataire: str, code: str):
+    expediteur = os.getenv('EMAIL')
+    mot_de_passe = os.getenv('PASSWORD')
+    destinataire = destinataire
+
+    smtp_server = "smtp.office365.com"
+    port = 587
+
+    message = MIMEMultipart()
+    message["From"] = expediteur
+    message["To"] = destinataire
+    message["Subject"] = "Test email"
+
+    corps = f"Ceci est ton code d'accès : {code}"
+    message.attach(MIMEText(corps, "plain"))
+
+    try:
+        server = smtplib.SMTP(smtp_server, port)
+        server.starttls()  # Sécuriser la connexion
+        server.login(expediteur, mot_de_passe)
+        server.send_message(message)
+        server.quit()
+        return {"status_code": 200, "message": "Email envoyé avec succès"}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Erreur inconnue : {str(e)}"
+        )
+
+    finally:
+        if server:
+            try:
+                server.quit()
+            except:
+                pass
+@app.post("/createMatches")
+def createMatches():
+    return {"created": 1}
