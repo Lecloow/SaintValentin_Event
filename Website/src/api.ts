@@ -1,7 +1,6 @@
 import { LoginPayload, LoginResponse, ApiError } from './types';
 
-const API_BASE_URL =  'http://localhost:8000'; //window.location.origin; // http://localhost:8000 ou ton domaine
-
+const API_BASE_URL = 'https://saint-valentin-backend.onrender.com';
 /**
  * Service pour les appels API
  */
