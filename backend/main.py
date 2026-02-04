@@ -12,6 +12,7 @@ import secrets
 import smtplib
 import ssl
 import logging
+import tempfile
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import os
