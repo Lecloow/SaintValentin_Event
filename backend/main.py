@@ -34,8 +34,6 @@ app.add_middleware(
 )
 
 
-DB_PATH = Path(__file__).resolve().parent / "data.db"
-
 # PostgreSQL connection configuration
 def get_db_connection():
     """Create and return a PostgreSQL database connection."""
@@ -64,6 +62,9 @@ def get_db_connection():
     return conn
 
 # Initialize database connection
+# Note: This uses a single connection for simplicity. For production use with high concurrency,
+# consider implementing connection pooling (e.g., psycopg2.pool) or using dependency injection
+# to create connections per request.
 db = get_db_connection()
 cursor = db.cursor()
 
@@ -99,10 +100,17 @@ db.commit()
 @app.on_event("shutdown")
 def shutdown_event():
     """Close database connection on application shutdown."""
-    if cursor:
-        cursor.close()
-    if db:
-        db.close()
+    try:
+        if cursor is not None:
+            cursor.close()
+    except Exception as e:
+        logging.error(f"Error closing cursor: {e}")
+    
+    try:
+        if db is not None:
+            db.close()
+    except Exception as e:
+        logging.error(f"Error closing database connection: {e}")
 
 # --------------------
 # MODELS
@@ -227,7 +235,13 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
             currentClass = f"{unit} {classe}".strip()
 
             cursor.execute(
-                "INSERT INTO users (id, first_name, last_name, email, currentClass) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, email = EXCLUDED.email, currentClass = EXCLUDED.currentClass",
+                """INSERT INTO users (id, first_name, last_name, email, currentClass) 
+                VALUES (%s, %s, %s, %s, %s) 
+                ON CONFLICT (id) DO UPDATE SET 
+                    first_name = EXCLUDED.first_name, 
+                    last_name = EXCLUDED.last_name, 
+                    email = EXCLUDED.email, 
+                    currentClass = EXCLUDED.currentClass""",
                 (str(user_id), first_name, last_name, email, currentClass)
             )
 
@@ -237,10 +251,15 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
                 code = generate_unique_password(passwd_len, cursor)
                 try:
                     cursor.execute(
-                        "INSERT INTO passwords (password, user_id) VALUES (%s, %s) ON CONFLICT (password) DO UPDATE SET user_id = EXCLUDED.user_id",
+                        """INSERT INTO passwords (password, user_id) 
+                        VALUES (%s, %s) 
+                        ON CONFLICT (password) DO NOTHING""",
                         (code, user_id)
                     )
-                    break
+                    # Check if the insert was successful
+                    if cursor.rowcount > 0:
+                        break
+                    # If rowcount is 0, there was a conflict, try again
                 except psycopg2.IntegrityError:
                     try_count += 1
                     continue
