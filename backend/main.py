@@ -275,15 +275,6 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
     return {"imported": inserted, "password_length": passwd_len}
 
 
-def import_xlsx_from_path(file_path: str, passwd_len: int = 6) -> dict:
-    """Helper to read an XLSX from disk and import it into DB (calls import_xlsx_df)."""
-    p = Path(file_path)
-    if not p.exists():
-        raise FileNotFoundError(file_path)
-    df_raw = pd.read_excel(p, dtype=object)
-    return import_xlsx_df(df_raw, passwd_len)
-
-
 # Refactor endpoint to use the reusable functions
 @app.post("/import-xlsx")
 async def import_xlsx(file: UploadFile, passwd_len: int = 6):
@@ -304,12 +295,6 @@ async def import_xlsx(file: UploadFile, passwd_len: int = 6):
 
     result = import_xlsx_df(df_raw, passwd_len)
     return result
-
-
-@app.get("/download-db/")
-async def download_db():
-    """Télécharge la base de données (Not available for PostgreSQL)"""
-    raise HTTPException(status_code=501, detail="Database download not supported for PostgreSQL")
 @app.post("/login")
 def check_code(payload: CodePayload):
     row = cursor.execute(
@@ -391,3 +376,29 @@ def sendEmails(destinataire: str, code: str):
 @app.post("/createMatches")
 def createMatches():
     return {"created": 1}
+
+
+@app.get("/check-db")
+def check_db():
+    """Vérifie les données dans la DB PostgreSQL"""
+    try:
+        cursor.execute("SELECT COUNT(*) FROM passwords")
+        password_count = cursor.fetchone()[0]
+
+        cursor.execute("SELECT COUNT(*) FROM users")
+        user_count = cursor.fetchone()[0]
+
+        cursor.execute("SELECT * FROM passwords LIMIT 5")
+        passwords = cursor.fetchall()
+
+        return {
+            "passwords_count": password_count,
+            "users_count": user_count,
+            "first_5_passwords": passwords,
+            "status": "✅ DB connected" if password_count > 0 else "⚠️ DB is empty"
+        }
+    except Exception as e:
+        return {
+            "error": str(e),
+            "status": "❌ DB connection failed"
+        }
