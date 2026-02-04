@@ -17,7 +17,7 @@ import os
 from dotenv import load_dotenv
 import pandas as pd
 import sys
-import sqlite3
+import psycopg
 from io import BytesIO
 
 load_dotenv()
@@ -33,8 +33,38 @@ app.add_middleware(
 )
 
 
-DB_PATH = Path(__file__).resolve().parent / "data.db"
-db = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+# PostgreSQL connection configuration
+def get_db_connection():
+    """Create and return a PostgreSQL database connection."""
+    # Try to get DATABASE_URL first, otherwise construct from individual components
+    database_url = os.getenv('DATABASE_URL')
+    
+    if database_url:
+        # Parse DATABASE_URL if provided
+        conn = psycopg.connect(database_url)
+    else:
+        # Construct connection from individual environment variables
+        db_host = os.getenv('DB_HOST', 'localhost')
+        db_port = os.getenv('DB_PORT', '5432')
+        db_name = os.getenv('DB_NAME', 'saintvalentin')
+        db_user = os.getenv('DB_USER', 'postgres')
+        db_password = os.getenv('DB_PASSWORD', '')
+        
+        conn = psycopg.connect(
+            host=db_host,
+            port=db_port,
+            dbname=db_name,
+            user=db_user,
+            password=db_password
+        )
+    
+    return conn
+
+# Initialize database connection
+# Note: This uses a single connection for simplicity. For production use with high concurrency,
+# consider implementing connection pooling (e.g., psycopg.pool) or using dependency injection
+# to create connections per request.
+db = get_db_connection()
 cursor = db.cursor()
 
 cursor.execute("""
@@ -64,6 +94,22 @@ CREATE TABLE IF NOT EXISTS matches (
 """)
 
 db.commit()
+
+# Add shutdown event to close database connection
+@app.on_event("shutdown")
+def shutdown_event():
+    """Close database connection on application shutdown."""
+    try:
+        if cursor is not None:
+            cursor.close()
+    except Exception as e:
+        logging.error(f"Error closing cursor: {e}")
+    
+    try:
+        if db is not None:
+            db.close()
+    except Exception as e:
+        logging.error(f"Error closing database connection: {e}")
 
 # --------------------
 # MODELS
@@ -131,7 +177,7 @@ def parse_name(full_name: str) -> dict:
 
 
 def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
-    """Import a DataFrame (read from XLSX) directly into the SQLite DB.
+    """Import a DataFrame (read from XLSX) directly into the PostgreSQL DB.
 
     - df_raw: raw DataFrame loaded from the original XLSX (keeps the "Nom" column if present)
     - passwd_len: length of generated passwords
@@ -188,7 +234,13 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
             currentClass = f"{unit} {classe}".strip()
 
             cursor.execute(
-                "INSERT OR REPLACE INTO users (id, first_name, last_name, email, currentClass) VALUES (?, ?, ?, ?, ?)",
+                """INSERT INTO users (id, first_name, last_name, email, currentClass) 
+                VALUES (%s, %s, %s, %s, %s) 
+                ON CONFLICT (id) DO UPDATE SET 
+                    first_name = EXCLUDED.first_name, 
+                    last_name = EXCLUDED.last_name, 
+                    email = EXCLUDED.email, 
+                    currentClass = EXCLUDED.currentClass""",
                 (str(user_id), first_name, last_name, email, currentClass)
             )
 
@@ -198,11 +250,16 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
                 code = generate_unique_password(passwd_len, cursor)
                 try:
                     cursor.execute(
-                        "INSERT OR REPLACE INTO passwords (password, user_id) VALUES (?, ?)",
+                        """INSERT INTO passwords (password, user_id) 
+                        VALUES (%s, %s) 
+                        ON CONFLICT (password) DO NOTHING""",
                         (code, user_id)
                     )
-                    break
-                except sqlite3.IntegrityError:
+                    # Check if the insert was successful
+                    if cursor.rowcount > 0:
+                        break
+                    # If rowcount is 0, there was a conflict, try again
+                except psycopg.IntegrityError:
                     try_count += 1
                     continue
             else:
@@ -230,7 +287,7 @@ def import_xlsx_from_path(file_path: str, passwd_len: int = 6) -> dict:
 # Refactor endpoint to use the reusable functions
 @app.post("/import-xlsx")
 async def import_xlsx(file: UploadFile, passwd_len: int = 6):
-    """Importe un fichier XLSX (upload ou path) directement dans la base SQLite sans créer de fichier JSON.
+    """Importe un fichier XLSX (upload ou path) directement dans la base PostgreSQL sans créer de fichier JSON.
 
     This endpoint now simply reads the XLSX (either uploaded bytes or a path) and calls
     `import_xlsx_df` so the same logic can be used programmatically.
@@ -251,19 +308,12 @@ async def import_xlsx(file: UploadFile, passwd_len: int = 6):
 
 @app.get("/download-db/")
 async def download_db():
-    """Télécharge la base de données SQLite"""
-    if not DB_PATH.exists():
-        raise HTTPException(status_code=404, detail="DB not found")
-
-    return FileResponse(
-        path=DB_PATH,
-        filename="data.db",
-        media_type='application/octet-stream'
-    )
+    """Télécharge la base de données (Not available for PostgreSQL)"""
+    raise HTTPException(status_code=501, detail="Database download not supported for PostgreSQL")
 @app.post("/login")
 def check_code(payload: CodePayload):
     row = cursor.execute(
-        "SELECT * FROM passwords WHERE password = ?",
+        "SELECT * FROM passwords WHERE password = %s",
         (payload.password,)
     ).fetchone()
 
@@ -273,7 +323,7 @@ def check_code(payload: CodePayload):
     #return HTTPException(200, "user_id:", row[1])  # user_id
     user_id = row[1]
     user_row = cursor.execute(
-        "SELECT id, first_name, last_name, email, currentClass FROM users WHERE id = ?",
+        "SELECT id, first_name, last_name, email, currentClass FROM users WHERE id = %s",
         (str(user_id),),
     ).fetchone()
 
@@ -289,11 +339,11 @@ def check_code(payload: CodePayload):
     return {"user_id": user_id}
 
 
-def generate_unique_password(length: int, cursor: sqlite3.Cursor) -> str:
+def generate_unique_password(length: int, cursor) -> str:
     chars = string.ascii_lowercase + string.digits
     for _ in range(10000):
         code = ''.join(secrets.choice(chars) for _ in range(length))
-        if cursor.execute("SELECT 1 FROM passwords WHERE password = ?", (code,)).fetchone():
+        if cursor.execute("SELECT 1 FROM passwords WHERE password = %s", (code,)).fetchone():
             continue
         return code
     raise RuntimeError("Failed to generate a unique password after max attempts")
