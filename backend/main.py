@@ -281,7 +281,7 @@ def import_xlsx_from_path(file_path: str, passwd_len: int = 6) -> dict:
 # Refactor endpoint to use the reusable functions
 @app.post("/import-xlsx")
 async def import_xlsx(file: UploadFile | None = File(None), file_path: str | None = None, passwd_len: int = 6):
-    """Importe un fichier XLSX (upload ou path) directement dans la base SQLite sans créer de fichier JSON.
+    """Importe un fichier XLSX (upload ou path) directement dans la base PostgreSQL sans créer de fichier JSON.
 
     This endpoint now simply reads the XLSX (either uploaded bytes or a path) and calls
     `import_xlsx_df` so the same logic can be used programmatically.
