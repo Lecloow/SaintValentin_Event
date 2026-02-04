@@ -74,7 +74,7 @@ export class LoginPage {
 
       this.showSuccess('Connexion réussie! Redirection...');
 
-      window.location.href = './website/profile.html';
+      window.location.href = './profile.html';
     } catch (error: any) {
       const message =
         error.message || 'Erreur lors de la connexion';
