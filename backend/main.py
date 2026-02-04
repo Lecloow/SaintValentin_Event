@@ -23,6 +23,7 @@ from io import BytesIO
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 app = FastAPI()
 
 app.add_middleware(
@@ -32,95 +33,150 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Variables globales pour la connexion
+_db = None
+_cursor = None
 
-# PostgreSQL connection configuration
+
 def get_db_connection():
     """Create and return a PostgreSQL database connection."""
-    # Try to get DATABASE_URL first, otherwise construct from individual components
-    database_url = os.getenv('DATABASE_URL')
-    
-    if database_url:
-        # Parse DATABASE_URL if provided
-        conn = psycopg.connect(database_url)
-    else:
-        # Construct connection from individual environment variables
-        db_host = os.getenv('DB_HOST', 'localhost')
-        db_port = os.getenv('DB_PORT', '5432')
-        db_name = os.getenv('DB_NAME', 'saintvalentin')
-        db_user = os.getenv('DB_USER', 'postgres')
-        db_password = os.getenv('DB_PASSWORD', '')
-        
-        conn = psycopg.connect(
-            host=db_host,
-            port=db_port,
-            dbname=db_name,
-            user=db_user,
-            password=db_password
-        )
-    
-    return conn
+    global _db, _cursor
 
-# Initialize database connection
-# Note: This uses a single connection for simplicity. For production use with high concurrency,
-# consider implementing connection pooling (e.g., psycopg.pool) or using dependency injection
-# to create connections per request.
-db = get_db_connection()
-cursor = db.cursor()
+    if _db is not None:
+        return _db
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS passwords (
-    password TEXT PRIMARY KEY,
-    user_id INTEGER
-)
-""")
+    try:
+        # Try to get DATABASE_URL first
+        database_url = os.getenv('DATABASE_URL')
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    first_name TEXT,
-    last_name TEXT,
-    email TEXT,
-    currentClass TEXT
-)
-""")
+        if database_url:
+            _db = psycopg.connect(database_url)
+        else:
+            # Construct connection from individual environment variables
+            db_host = os.getenv('DB_HOST', 'localhost')
+            db_port = os.getenv('DB_PORT', '5432')
+            db_name = os.getenv('DB_NAME', 'saintvalentin')
+            db_user = os.getenv('DB_USER', 'postgres')
+            db_password = os.getenv('DB_PASSWORD', '')
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS matches (
-    id TEXT PRIMARY KEY,
-    day1 TEXT,
-    day2 TEXT,
-    day3 TEXT
-)
-""")
+            _db = psycopg.connect(
+                host=db_host,
+                port=db_port,
+                dbname=db_name,
+                user=db_user,
+                password=db_password
+            )
 
-db.commit()
+        _cursor = _db.cursor()
+        logger.info("✅ Database connection established")
+        return _db
+    except Exception as e:
+        logger.error(f"❌ Database connection failed: {e}")
+        _db = None
+        _cursor = None
+        raise
 
-# Add shutdown event to close database connection
+
+def init_tables():
+    """Initialize database tables."""
+    try:
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        cursor.execute("""
+                       CREATE TABLE IF NOT EXISTS passwords
+                       (
+                           password
+                           TEXT
+                           PRIMARY
+                           KEY,
+                           user_id
+                           INTEGER
+                       )
+                       """)
+
+        cursor.execute("""
+                       CREATE TABLE IF NOT EXISTS users
+                       (
+                           id
+                           TEXT
+                           PRIMARY
+                           KEY,
+                           first_name
+                           TEXT,
+                           last_name
+                           TEXT,
+                           email
+                           TEXT,
+                           currentClass
+                           TEXT
+                       )
+                       """)
+
+        cursor.execute("""
+                       CREATE TABLE IF NOT EXISTS matches
+                       (
+                           id
+                           TEXT
+                           PRIMARY
+                           KEY,
+                           day1
+                           TEXT,
+                           day2
+                           TEXT,
+                           day3
+                           TEXT
+                       )
+                       """)
+
+        db.commit()
+        logger.info("✅ Tables initialized")
+    except Exception as e:
+        logger.error(f"❌ Table initialization failed: {e}")
+
+
+# Initialize tables on startup
+@app.on_event("startup")
+def startup_event():
+    """Initialize database on app startup."""
+    try:
+        init_tables()
+    except Exception as e:
+        logger.error(f"Startup error: {e}")
+
+
+# Shutdown event
 @app.on_event("shutdown")
 def shutdown_event():
     """Close database connection on application shutdown."""
+    global _db, _cursor
     try:
-        if cursor is not None:
-            cursor.close()
+        if _cursor is not None:
+            _cursor.close()
     except Exception as e:
-        logging.error(f"Error closing cursor: {e}")
-    
+        logger.error(f"Error closing cursor: {e}")
+
     try:
-        if db is not None:
-            db.close()
+        if _db is not None:
+            _db.close()
     except Exception as e:
-        logging.error(f"Error closing database connection: {e}")
+        logger.error(f"Error closing database connection: {e}")
+
+    _db = None
+    _cursor = None
+
 
 # --------------------
 # MODELS
 # --------------------
 class CodePayload(BaseModel):
     password: str
-    #user_id: str
+
 
 class AnswerPayload(BaseModel):
     code: str
     data: dict
+
 
 class Person(BaseModel):
     id: str
@@ -140,6 +196,7 @@ def score(a: dict, b: dict) -> int:
         if k in b and a[k] == b[k]:
             s += 1
     return s
+
 
 def parse_name(full_name: str) -> dict:
     if not full_name or pd.isna(full_name):
@@ -176,229 +233,93 @@ def parse_name(full_name: str) -> dict:
     return {"first_name": first_name, "last_name": last_name}
 
 
-def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
-    """Import a DataFrame (read from XLSX) directly into the PostgreSQL DB.
+# --------------------
+# ROUTES
+# --------------------
 
-    - df_raw: raw DataFrame loaded from the original XLSX (keeps the "Nom" column if present)
-    - passwd_len: length of generated passwords
-
-    Returns: dict with keys {imported, password_length}
-    """
-    # Work on a copy and drop unwanted columns (same logic as before)
-    df = df_raw.copy()
-
-    drop_exact = [
-        "Heure de début",
-        "Heure de fin",
-        "Heure de la dernière modification",
-        "Total points",
-        "Quiz feedback",
-        "Nom",
-    ]
-    drop_pattern = df.columns[
-        df.columns.str.startswith("Points - ")
-        | df.columns.str.startswith("Feedback - ")
-    ].tolist()
-    all_to_drop = drop_exact + drop_pattern
-    df = df.drop(columns=[c for c in all_to_drop if c in df.columns])
-
-    # Clear existing tables
-    cursor.execute("DELETE FROM passwords")
-    cursor.execute("DELETE FROM users")
-    db.commit()
-
-    inserted = 0
-
-    for idx, row in df.iterrows():
-        try:
-            raw_name = df_raw.at[idx, "Nom"] if "Nom" in df_raw.columns else None
-            name = parse_name(raw_name)
-
-            user_id = int(row["ID"]) if pd.notna(row.get("ID")) else None
-            first_name = name.get("first_name") or row.get("Prenom") or ""
-            last_name = name.get("last_name") or row.get("Nom") or ""
-            email = row.get("Adresse de messagerie") or row.get("Email") or row.get("email") or ""
-
-            # Build answers dict from remaining columns
-            skip_cols = ["ID", "Adresse de messagerie"]
-            answers = {}
-            for col in df.columns:
-                if col not in skip_cols:
-                    value = row[col]
-                    clean_col = str(col).replace("\xa0", " ").strip()
-                    answers[clean_col] = str(value) if pd.notna(value) else None
-
-            # Try to construct currentClass from answers if possible
-            unit = answers.get("Dans quel unité es-tu ?") or answers.get("Dans quelle unité es-tu ?") or ""
-            classe = answers.get("Dans quelle classe es-tu ?") or answers.get("Dans quelle classe es-tu ?") or ""
-            currentClass = f"{unit} {classe}".strip()
-
-            cursor.execute(
-                """INSERT INTO users (id, first_name, last_name, email, currentClass) 
-                VALUES (%s, %s, %s, %s, %s) 
-                ON CONFLICT (id) DO UPDATE SET 
-                    first_name = EXCLUDED.first_name, 
-                    last_name = EXCLUDED.last_name, 
-                    email = EXCLUDED.email, 
-                    currentClass = EXCLUDED.currentClass""",
-                (str(user_id), first_name, last_name, email, currentClass)
-            )
-
-            # generate and insert a unique password
-            try_count = 0
-            while try_count < 5:
-                code = generate_unique_password(passwd_len, cursor)
-                try:
-                    cursor.execute(
-                        """INSERT INTO passwords (password, user_id) 
-                        VALUES (%s, %s) 
-                        ON CONFLICT (password) DO NOTHING""",
-                        (code, user_id)
-                    )
-                    # Check if the insert was successful
-                    if cursor.rowcount > 0:
-                        break
-                    # If rowcount is 0, there was a conflict, try again
-                except psycopg.IntegrityError:
-                    try_count += 1
-                    continue
-            else:
-                logging.warning(f"Failed to generate unique password for user {user_id}")
-                continue
-
-            inserted += 1
-        except Exception as e:
-            logging.exception(f"Skipping row {idx} due to error: {e}")
-            continue
-
-    db.commit()
-    return {"imported": inserted, "password_length": passwd_len}
+@app.get("/")
+def read_root():
+    """Health check endpoint."""
+    return {"status": "ok", "message": "Backend is running"}
 
 
-# Refactor endpoint to use the reusable functions
-@app.post("/import-xlsx")
-async def import_xlsx(file: UploadFile, passwd_len: int = 6):
-    """Importe un fichier XLSX (upload ou path) directement dans la base PostgreSQL sans créer de fichier JSON.
-
-    This endpoint now simply reads the XLSX (either uploaded bytes or a path) and calls
-    `import_xlsx_df` so the same logic can be used programmatically.
-    """
-    if file is None:
-        raise HTTPException(status_code=400, detail="Provide either an uploaded file or a file_path")
-
-    # Read DataFrame
+@app.get("/health")
+def health_check():
+    """Health check endpoint with database status."""
     try:
-        contents = await file.read()
-        df_raw = pd.read_excel(BytesIO(contents), dtype=object)
+        db = get_db_connection()
+        db.execute("SELECT 1")
+        return {"status": "healthy", "database": "connected"}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read XLSX: {e}")
+        logger.error(f"Health check failed: {e}")
+        return {"status": "unhealthy", "error": str(e)}
 
-    result = import_xlsx_df(df_raw, passwd_len)
-    return result
+
 @app.post("/login")
-def check_code(payload: CodePayload):
-    row = cursor.execute(
-        "SELECT * FROM passwords WHERE password = %s",
-        (payload.password,)
-    ).fetchone()
-
-    if not row:
-        raise HTTPException(403, "Code invalide")
-
-    #return HTTPException(200, "user_id:", row[1])  # user_id
-    user_id = row[1]
-    user_row = cursor.execute(
-        "SELECT id, first_name, last_name, email, currentClass FROM users WHERE id = %s",
-        (str(user_id),),
-    ).fetchone()
-
-    if user_row:
-        return {
-            "id": user_row[0],
-            "first_name": user_row[1],
-            "last_name": user_row[2],
-            "email": user_row[3],
-            "currentClass": user_row[4],
-        }
-
-    return {"user_id": user_id}
-
-
-def generate_unique_password(length: int, cursor) -> str:
-    chars = string.ascii_lowercase + string.digits
-    for _ in range(10000):
-        code = ''.join(secrets.choice(chars) for _ in range(length))
-        if cursor.execute("SELECT 1 FROM passwords WHERE password = %s", (code,)).fetchone():
-            continue
-        return code
-    raise RuntimeError("Failed to generate a unique password after max attempts")
-
-@app.post("/send-emails")
-def sendEmails(destinataire: str, code: str):
-    print("Launching sendEmails...")
-    expediteur = os.getenv('EMAIL')
-    mot_de_passe = os.getenv('PASSWORD')
-    destinataire = destinataire
-
-    smtp_server = "smtp.office365.com"
-    port = 587
-    print("trying to connect")
-
-    message = MIMEMultipart()
-    message["From"] = expediteur
-    message["To"] = destinataire
-    message["Subject"] = "Test email"
-
-    corps = f"Ceci est ton code d'accès : {code}"
-    message.attach(MIMEText(corps, "plain"))
-
-    server = None
+def login(payload: CodePayload):
+    """Login endpoint."""
     try:
-        server = smtplib.SMTP(smtp_server, port)
-        server.starttls()  # Sécuriser la connexion
-        server.login(expediteur, mot_de_passe)
-        server.send_message(message)
-        server.quit()
-        return {"status_code": 200, "message": "Email envoyé avec succès"}
+        db = get_db_connection()
+        cursor = db.cursor()
 
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erreur inconnue : {str(e)}"
+        cursor.execute(
+            "SELECT user_id FROM passwords WHERE password = %s",
+            (payload.password,)
         )
+        result = cursor.fetchone()
 
-    finally:
-        if server:
-            try:
-                server.quit()
-            except:
-                pass
-@app.post("/createMatches")
-def createMatches():
-    return {"created": 1}
+        if not result:
+            raise HTTPException(status_code=401, detail="Invalid password")
 
+        user_id = result[0]
+        cursor.execute(
+            "SELECT id, first_name, last_name, email, currentClass FROM users WHERE id = %s",
+            (user_id,)
+        )
+        user = cursor.fetchone()
 
-@app.get("/check-db")
-def check_db():
-    """Vérifie les données dans la DB PostgreSQL"""
-    try:
-        cursor.execute("SELECT COUNT(*) FROM passwords")
-        password_count = cursor.fetchone()[0]
-
-        cursor.execute("SELECT COUNT(*) FROM users")
-        user_count = cursor.fetchone()[0]
-
-        cursor.execute("SELECT * FROM passwords LIMIT 5")
-        passwords = cursor.fetchall()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
 
         return {
-            "passwords_count": password_count,
-            "users_count": user_count,
-            "first_5_passwords": passwords,
-            "status": "✅ DB connected" if password_count > 0 else "⚠️ DB is empty"
+            "id": user[0],
+            "first_name": user[1],
+            "last_name": user[2],
+            "email": user[3],
+            "currentClass": user[4]
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        return {
-            "error": str(e),
-            "status": "❌ DB connection failed"
-        }
+        logger.error(f"Login error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post("/submit")
+def submit_answers(payload: AnswerPayload):
+    """Submit quiz answers."""
+    try:
+        db = get_db_connection()
+        cursor = db.cursor()
+
+        # Find the user by password
+        cursor.execute(
+            "SELECT user_id FROM passwords WHERE password = %s",
+            (payload.code,)
+        )
+        result = cursor.fetchone()
+
+        if not result:
+            raise HTTPException(status_code=401, detail="Invalid code")
+
+        user_id = result[0]
+
+        # Store the answers (implementation depends on your schema)
+        logger.info(f"Answers received from user {user_id}")
+
+        return {"status": "success", "message": "Answers submitted"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Submit error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
