@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pathlib3 import Path
-import sqlite3
+import psycopg2
 import json
 import datetime
 import random
@@ -18,6 +18,7 @@ import os
 from dotenv import load_dotenv
 import pandas as pd
 import sys
+from database import init_db, get_db_cursor, get_connection, return_connection
 
 load_dotenv()
 
@@ -31,37 +32,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-db = sqlite3.connect("data.db", check_same_thread=False)
-cursor = db.cursor()
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS passwords (
-    password TEXT PRIMARY KEY,
-    user_id INTEGER
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    first_name TEXT,
-    last_name TEXT,
-    email TEXT,
-    currentClass TEXT
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS matches (
-    id TEXT PRIMARY KEY,
-    day1 TEXT,
-    day2 TEXT,
-    day3 TEXT
-)
-""")
-
-db.commit()
+# Initialize database tables on startup
+init_db()
 
 # --------------------
 # MODELS
@@ -209,51 +181,76 @@ async def upload_xlsx(file: UploadFile = File(...)):
 
 @app.get("/download-db/")
 async def download_db():
-    """Télécharge la base de données SQLite"""
-    db_path = Path(__file__).resolve().parent / "data.db"
-
-    if not db_path.exists():
-        raise HTTPException(status_code=404, detail="DB not found")
-
+    """Export database data as JSON"""
+    import tempfile
+    
+    with get_db_cursor(commit=False) as cursor:
+        # Export all tables
+        cursor.execute("SELECT * FROM users")
+        users_columns = [desc[0] for desc in cursor.description]
+        users = [dict(zip(users_columns, row)) for row in cursor.fetchall()]
+        
+        cursor.execute("SELECT * FROM passwords")
+        passwords_columns = [desc[0] for desc in cursor.description]
+        passwords = [dict(zip(passwords_columns, row)) for row in cursor.fetchall()]
+        
+        cursor.execute("SELECT * FROM matches")
+        matches_columns = [desc[0] for desc in cursor.description]
+        matches = [dict(zip(matches_columns, row)) for row in cursor.fetchall()]
+    
+    # Create temporary file
+    export_data = {
+        "users": users,
+        "passwords": passwords,
+        "matches": matches
+    }
+    
+    temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False)
+    json.dump(export_data, temp_file, ensure_ascii=False, indent=2)
+    temp_file.close()
+    
     return FileResponse(
-        path=db_path,
-        filename="data.db",
-        media_type='application/octet-stream'
+        path=temp_file.name,
+        filename="database_export.json",
+        media_type='application/json'
     )
 @app.post("/login")
 def check_code(payload: CodePayload):
-    row = cursor.execute(
-        "SELECT * FROM passwords WHERE password = ?",
-        (payload.password,)
-    ).fetchone()
+    with get_db_cursor(commit=False) as cursor:
+        cursor.execute(
+            "SELECT * FROM passwords WHERE password = %s",
+            (payload.password,)
+        )
+        row = cursor.fetchone()
 
-    if not row:
-        raise HTTPException(403, "Code invalide")
+        if not row:
+            raise HTTPException(403, "Code invalide")
 
-    #return HTTPException(200, "user_id:", row[1])  # user_id
-    user_id = row[1]
-    user_row = cursor.execute(
-        "SELECT id, first_name, last_name, email, currentClass FROM users WHERE id = ?",
-        (str(user_id),),
-    ).fetchone()
+        user_id = row[1]
+        cursor.execute(
+            "SELECT id, first_name, last_name, email, currentClass FROM users WHERE id = %s",
+            (str(user_id),),
+        )
+        user_row = cursor.fetchone()
 
-    if user_row:
-        return {
-            "id": user_row[0],
-            "first_name": user_row[1],
-            "last_name": user_row[2],
-            "email": user_row[3],
-            "currentClass": user_row[4],
-        }
+        if user_row:
+            return {
+                "id": user_row[0],
+                "first_name": user_row[1],
+                "last_name": user_row[2],
+                "email": user_row[3],
+                "currentClass": user_row[4],
+            }
 
-    return {"user_id": user_id}
+        return {"user_id": user_id}
 
 
-def generate_unique_password(length: int, cursor: sqlite3.Cursor) -> str:
+def generate_unique_password(length: int, cursor) -> str:
     chars = string.ascii_lowercase + string.digits
     for _ in range(10000):
         code = ''.join(secrets.choice(chars) for _ in range(length))
-        if cursor.execute("SELECT 1 FROM passwords WHERE password = ?", (code,)).fetchone():
+        cursor.execute("SELECT 1 FROM passwords WHERE password = %s", (code,))
+        if cursor.fetchone():
             continue
         return code
     raise RuntimeError("Failed to generate a unique password after max attempts")
@@ -268,58 +265,57 @@ def import_users_from_json(passwd_len: int = 6):
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"File not found: {path}")
 
-    cursor.execute("DELETE FROM passwords")
-    cursor.execute("DELETE FROM users")
-    db.commit()
+    with get_db_cursor(commit=True) as cursor:
+        cursor.execute("DELETE FROM passwords")
+        cursor.execute("DELETE FROM users")
 
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
+        with path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
 
-    # normalize to a list of user dicts
-    if isinstance(data, dict):
-        users = data.get("users") or data.get("data") or [data]
-    elif isinstance(data, list):
-        users = data
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported JSON format")
-
-    # preload existing passwords to avoid duplicates during this run
-    inserted = 0
-    for u in users:
-        id = u.get("id")
-
-        first_name = u.get("first_name")
-        last_name = u.get("last_name")
-        email = u.get("email")
-        currentClass = f"{u.get("answers")["Dans quel unité es-tu ?"]} {u.get("answers")["Dans quelle classe es-tu ?"]}"
-
-        cursor.execute(
-            "INSERT OR REPLACE INTO users (id, first_name, last_name, email, currentClass) VALUES (?, ?, ?, ?, ?)",
-            (id, first_name, last_name, email, currentClass)
-        )
-
-        # try to generate and insert a unique password, handle rare race conditions
-        try_count = 0
-        while try_count < 5:
-            code = generate_unique_password(passwd_len, cursor)
-            print(f"code is {code} for user {u}")
-            try:
-                cursor.execute(
-                    "INSERT OR REPLACE INTO passwords (password, user_id) VALUES (?, ?)",
-                    (code, id)
-                )
-                break
-            except sqlite3.IntegrityError:
-                try_count += 1
-                continue
+        # normalize to a list of user dicts
+        if isinstance(data, dict):
+            users = data.get("users") or data.get("data") or [data]
+        elif isinstance(data, list):
+            users = data
         else:
-            # give up for this user after retries
-            print(f"Failed to generate unique password for user {id}")
-            continue
+            raise HTTPException(status_code=400, detail="Unsupported JSON format")
 
-        inserted += 1
+        # preload existing passwords to avoid duplicates during this run
+        inserted = 0
+        for u in users:
+            id = u.get("id")
 
-    db.commit()
+            first_name = u.get("first_name")
+            last_name = u.get("last_name")
+            email = u.get("email")
+            currentClass = f"{u.get("answers")["Dans quel unité es-tu ?"]} {u.get("answers")["Dans quelle classe es-tu ?"]}"
+
+            cursor.execute(
+                "INSERT INTO users (id, first_name, last_name, email, currentClass) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, email = EXCLUDED.email, currentClass = EXCLUDED.currentClass",
+                (id, first_name, last_name, email, currentClass)
+            )
+
+            # try to generate and insert a unique password, handle rare race conditions
+            try_count = 0
+            while try_count < 5:
+                code = generate_unique_password(passwd_len, cursor)
+                print(f"code is {code} for user {u}")
+                try:
+                    cursor.execute(
+                        "INSERT INTO passwords (password, user_id) VALUES (%s, %s) ON CONFLICT (password) DO UPDATE SET user_id = EXCLUDED.user_id",
+                        (code, id)
+                    )
+                    break
+                except psycopg2.IntegrityError:
+                    try_count += 1
+                    continue
+            else:
+                # give up for this user after retries
+                print(f"Failed to generate unique password for user {id}")
+                continue
+
+            inserted += 1
+
     return {"imported": inserted, "password_length": passwd_len}
 
 

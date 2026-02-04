@@ -1,19 +1,30 @@
 # python
 from pathlib import Path
-import sqlite3
+import psycopg2
 import json
 import random
 import string
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 def generate_password(length: int = 6) -> str:
     chars = string.ascii_lowercase + string.digits
     return ''.join(random.choice(chars) for _ in range(length))
 
+def get_db_connection():
+    """Get a PostgreSQL database connection."""
+    database_url = os.getenv("DATABASE_URL")
+    if not database_url:
+        raise ValueError("DATABASE_URL environment variable is not set")
+    return psycopg2.connect(database_url)
+
 def import_users_from_json(json_path: str | None = None, passwd_len: int = 6):
     """
     Read JSON (list or dict) and import users into `users` table.
     For each user insert a generated unique password into `passwords`.
-    Uses the existing `cursor` and `db` sqlite objects from the module.
+    Uses PostgreSQL connection.
     """
     path = Path(json_path) if json_path else Path(__file__).resolve().parent / "input.json"
     if not path.exists():
@@ -33,6 +44,10 @@ def import_users_from_json(json_path: str | None = None, passwd_len: int = 6):
         print("Unsupported JSON format")
         return
 
+    # Connect to PostgreSQL
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
     inserted = 0
     for u in users:
         uid = u.get("id") or u.get("ID") or u.get("user_id") or u.get("uid")
@@ -47,7 +62,7 @@ def import_users_from_json(json_path: str | None = None, passwd_len: int = 6):
 
         # insert or replace user (keeps table consistent)
         cursor.execute(
-            "INSERT OR REPLACE INTO users (id, first_name, last_name, email, currentClass) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO users (id, first_name, last_name, email, currentClass) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, email = EXCLUDED.email, currentClass = EXCLUDED.currentClass",
             (str(uid), first_name, last_name, email, currentClass)
         )
 
@@ -56,12 +71,13 @@ def import_users_from_json(json_path: str | None = None, passwd_len: int = 6):
             code = generate_password(passwd_len)
             try:
                 cursor.execute(
-                    "INSERT INTO passwords (password, user_id) VALUES (?, ?)",
+                    "INSERT INTO passwords (password, user_id) VALUES (%s, %s)",
                     (code, str(uid))
                 )
                 break
-            except sqlite3.IntegrityError:
+            except psycopg2.IntegrityError:
                 # collision on password primary key; try again
+                conn.rollback()
                 continue
         else:
             # if no unique code found after retries, skip this user
@@ -70,7 +86,9 @@ def import_users_from_json(json_path: str | None = None, passwd_len: int = 6):
 
         inserted += 1
 
-    db.commit()
+    conn.commit()
+    cursor.close()
+    conn.close()
     print(f"Imported {inserted} users and created passwords (length={passwd_len}).")
 
 if __name__ == "__main__":
