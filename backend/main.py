@@ -130,64 +130,6 @@ def parse_name(full_name: str) -> dict:
     return {"first_name": first_name, "last_name": last_name}
 
 
-def convert_xlsx_to_json(input_path: str, output_path: str):
-    # Lire le fichier Excel
-    df = pd.read_excel(input_path)
-    print(f"📋 {len(df)} entrées trouvées")
-
-    # Colonnes à supprimer exactement
-    drop_exact = [
-        "Heure de début",
-        "Heure de fin",
-        "Heure de la dernière modification",
-        "Total points",
-        "Quiz feedback",
-        "Nom",  # On la remplace par first_name + last_name
-    ]
-
-    # Supprimer les colonnes "Points - ..." et "Feedback - ..."
-    drop_pattern = df.columns[
-        df.columns.str.startswith("Points - ")
-        | df.columns.str.startswith("Feedback - ")
-    ].tolist()
-
-    all_to_drop = drop_exact + drop_pattern
-    df = df.drop(columns=[c for c in all_to_drop if c in df.columns])
-
-    results = []
-
-    for _, row in df.iterrows():
-        # Séparer le nom
-        name = parse_name(
-            pd.read_excel(input_path)["Nom"].iloc[row.name]
-        )
-
-        entry = {
-            "id": int(row["ID"]),
-            "first_name": name["first_name"],
-            "last_name": name["last_name"],
-            "email": row["Adresse de messagerie"],
-            "answers": {},
-        }
-
-        # Ajouter les réponses (tout ce qui reste sauf ID et email)
-        skip_cols = ["ID", "Adresse de messagerie"]
-        for col in df.columns:
-            if col not in skip_cols:
-                value = row[col]
-                # Nettoyer les \xa0 (espace insécable) dans les clés
-                clean_col = col.replace("\xa0", " ").strip()
-                entry["answers"][clean_col] = (
-                    str(value) if pd.notna(value) else None
-                )
-
-        results.append(entry)
-
-    # --- Écrire le JSON ---
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
-
-
 def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
     """Import a DataFrame (read from XLSX) directly into the SQLite DB.
 
@@ -287,22 +229,19 @@ def import_xlsx_from_path(file_path: str, passwd_len: int = 6) -> dict:
 
 # Refactor endpoint to use the reusable functions
 @app.post("/import-xlsx")
-async def import_xlsx(file: UploadFile | None = File(None), file_path: str | None = None, passwd_len: int = 6):
+async def import_xlsx(file: UploadFile, passwd_len: int = 6):
     """Importe un fichier XLSX (upload ou path) directement dans la base SQLite sans créer de fichier JSON.
 
     This endpoint now simply reads the XLSX (either uploaded bytes or a path) and calls
     `import_xlsx_df` so the same logic can be used programmatically.
     """
-    if file is None and file_path is None:
+    if file is None:
         raise HTTPException(status_code=400, detail="Provide either an uploaded file or a file_path")
 
     # Read DataFrame
     try:
-        if file is not None:
-            contents = await file.read()
-            df_raw = pd.read_excel(BytesIO(contents), dtype=object)
-        else:
-            df_raw = pd.read_excel(Path(file_path), dtype=object)
+        contents = await file.read()
+        df_raw = pd.read_excel(BytesIO(contents), dtype=object)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read XLSX: {e}")
 
