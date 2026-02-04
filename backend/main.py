@@ -17,7 +17,7 @@ import os
 from dotenv import load_dotenv
 import pandas as pd
 import sys
-import psycopg2
+import psycopg
 from io import BytesIO
 from database import get_connection, init_database
 
