@@ -17,8 +17,7 @@ import os
 from dotenv import load_dotenv
 import pandas as pd
 import sys
-import psycopg2
-from psycopg2.extras import RealDictCursor
+import psycopg
 from io import BytesIO
 
 load_dotenv()
@@ -42,7 +41,7 @@ def get_db_connection():
     
     if database_url:
         # Parse DATABASE_URL if provided
-        conn = psycopg2.connect(database_url)
+        conn = psycopg.connect(database_url)
     else:
         # Construct connection from individual environment variables
         db_host = os.getenv('DB_HOST', 'localhost')
@@ -51,10 +50,10 @@ def get_db_connection():
         db_user = os.getenv('DB_USER', 'postgres')
         db_password = os.getenv('DB_PASSWORD', '')
         
-        conn = psycopg2.connect(
+        conn = psycopg.connect(
             host=db_host,
             port=db_port,
-            database=db_name,
+            dbname=db_name,
             user=db_user,
             password=db_password
         )
@@ -63,7 +62,7 @@ def get_db_connection():
 
 # Initialize database connection
 # Note: This uses a single connection for simplicity. For production use with high concurrency,
-# consider implementing connection pooling (e.g., psycopg2.pool) or using dependency injection
+# consider implementing connection pooling (e.g., psycopg.pool) or using dependency injection
 # to create connections per request.
 db = get_db_connection()
 cursor = db.cursor()
@@ -260,7 +259,7 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
                     if cursor.rowcount > 0:
                         break
                     # If rowcount is 0, there was a conflict, try again
-                except psycopg2.IntegrityError:
+                except psycopg.IntegrityError:
                     try_count += 1
                     continue
             else:

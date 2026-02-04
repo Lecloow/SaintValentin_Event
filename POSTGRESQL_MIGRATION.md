@@ -5,7 +5,8 @@ This document describes the migration from SQLite to PostgreSQL for the Saint Va
 ## Changes Made
 
 ### 1. Dependencies
-- Added `psycopg2-binary==2.9.9` to `requirements.txt`
+- **Updated**: Using `psycopg[binary]>=3.1.0` (modern psycopg3 library)
+- **Previous**: psycopg2-binary (now deprecated)
 
 ### 2. Database Connection
 - **Before**: Used SQLite with local `data.db` file
@@ -89,11 +90,12 @@ uvicorn main:app --reload
 - Table structure remains the same (passwords, users, matches)
 - All endpoints continue to work as before
 - XLSX import/export functionality unchanged
+- Using modern psycopg3 library (psycopg2 is now deprecated)
 
 ## Future Improvements
 
 For high-concurrency production use, consider:
-- Implementing connection pooling with `psycopg2.pool`
+- Implementing connection pooling with `psycopg.pool` (psycopg3)
 - Using FastAPI dependency injection for per-request connections
 - Adding database migration tools (e.g., Alembic)
 - Implementing database backup strategies
