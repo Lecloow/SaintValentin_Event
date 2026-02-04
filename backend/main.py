@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pathlib3 import Path
 import sqlite3
@@ -204,6 +205,21 @@ async def upload_xlsx(file: UploadFile = File(...)):
         "filename": file.filename,
         "location": str(file_location)
     }
+
+
+@app.get("/download-db/")
+async def download_db():
+    """Télécharge la base de données SQLite"""
+    db_path = Path(__file__).resolve().parent / "data.db"
+
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail="DB not found")
+
+    return FileResponse(
+        path=db_path,
+        filename="data.db",
+        media_type='application/octet-stream'
+    )
 @app.post("/login")
 def check_code(payload: CodePayload):
     row = cursor.execute(
@@ -309,12 +325,14 @@ def import_users_from_json(passwd_len: int = 6):
 
 @app.post("/send-emails")
 def sendEmails(destinataire: str, code: str):
+    print("Launching sendEmails...")
     expediteur = os.getenv('EMAIL')
     mot_de_passe = os.getenv('PASSWORD')
     destinataire = destinataire
 
     smtp_server = "smtp.office365.com"
     port = 587
+    print("trying to connect")
 
     message = MIMEMultipart()
     message["From"] = expediteur
