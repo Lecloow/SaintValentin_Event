@@ -133,8 +133,6 @@ def convert_xlsx_to_json(input_path: str, output_path: str):
     df = pd.read_excel(input_path)
     print(f"📋 {len(df)} entrées trouvées")
 
-    # --- Supprimer les colonnes indésirables ---
-
     # Colonnes à supprimer exactement
     drop_exact = [
         "Heure de début",
@@ -154,9 +152,6 @@ def convert_xlsx_to_json(input_path: str, output_path: str):
     all_to_drop = drop_exact + drop_pattern
     df = df.drop(columns=[c for c in all_to_drop if c in df.columns])
 
-    print(f"🗑️  Colonnes supprimées, reste {len(df.columns)} colonnes")
-
-    # --- Construire le JSON ---
     results = []
 
     for _, row in df.iterrows():
@@ -302,7 +297,6 @@ def import_users_from_json(passwd_len: int = 6):
         try_count = 0
         while try_count < 5:
             code = generate_unique_password(passwd_len, cursor)
-            print(f"code is {code} for user {u}")
             try:
                 cursor.execute(
                     "INSERT OR REPLACE INTO passwords (password, user_id) VALUES (?, ?)",
