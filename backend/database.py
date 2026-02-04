@@ -73,7 +73,8 @@ def get_db_cursor(commit=True):
     Automatically handles transactions.
     
     Args:
-        commit: If True, commits the transaction on success. If False, rolls back.
+        commit: If True, commits the transaction on success. If False, does not commit.
+                On exception, always rolls back.
     """
     conn = get_connection()
     cursor = conn.cursor()

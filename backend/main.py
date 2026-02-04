@@ -18,7 +18,6 @@ from email.mime.multipart import MIMEMultipart
 import os
 from dotenv import load_dotenv
 import pandas as pd
-import sys
 from database import init_db, get_db_cursor, get_connection, return_connection
 
 load_dotenv()
@@ -183,7 +182,7 @@ async def upload_xlsx(file: UploadFile = File(...)):
 @app.get("/download-db/")
 async def download_db():
     """Export database data as JSON"""
-    import tempfile
+    import os as os_module
     
     with get_db_cursor(commit=False) as cursor:
         # Export all tables
@@ -210,10 +209,22 @@ async def download_db():
     json.dump(export_data, temp_file, ensure_ascii=False, indent=2)
     temp_file.close()
     
+    # Schedule cleanup of temp file after response is sent
+    def cleanup_temp_file():
+        try:
+            os_module.unlink(temp_file.name)
+        except Exception:
+            pass
+    
+    from fastapi import BackgroundTasks
+    background_tasks = BackgroundTasks()
+    background_tasks.add_task(cleanup_temp_file)
+    
     return FileResponse(
         path=temp_file.name,
         filename="database_export.json",
-        media_type='application/json'
+        media_type='application/json',
+        background=background_tasks
     )
 @app.post("/login")
 def check_code(payload: CodePayload):
