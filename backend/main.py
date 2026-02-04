@@ -302,6 +302,7 @@ def import_users_from_json(passwd_len: int = 6):
         try_count = 0
         while try_count < 5:
             code = generate_unique_password(passwd_len, cursor)
+            print(f"code is {code} for user {u}")
             try:
                 cursor.execute(
                     "INSERT OR REPLACE INTO passwords (password, user_id) VALUES (?, ?)",
