@@ -33,7 +33,8 @@ app.add_middleware(
 )
 
 
-db = sqlite3.connect("data.db", check_same_thread=False)
+DB_PATH = Path(__file__).resolve().parent / "data.db"
+db = sqlite3.connect(str(DB_PATH), check_same_thread=False)
 cursor = db.cursor()
 
 cursor.execute("""
@@ -312,13 +313,11 @@ async def import_xlsx(file: UploadFile | None = File(None), file_path: str | Non
 @app.get("/download-db/")
 async def download_db():
     """Télécharge la base de données SQLite"""
-    db_path = Path(__file__).resolve().parent / "data.db"
-
-    if not db_path.exists():
+    if not DB_PATH.exists():
         raise HTTPException(status_code=404, detail="DB not found")
 
     return FileResponse(
-        path=db_path,
+        path=DB_PATH,
         filename="data.db",
         media_type='application/octet-stream'
     )
