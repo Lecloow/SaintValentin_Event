@@ -72,13 +72,9 @@ export class LoginPage {
       // Sauvegarde l'utilisateur
       StorageService.setUser(user);
 
-      // Affiche un message de succès brièvement
       this.showSuccess('Connexion réussie! Redirection...');
 
-      // Redirige vers la page de profil après 1 seconde
-      setTimeout(() => {
-        window.location.href = './profile.html';
-      }, 1000);
+      window.location.href = './profile/';
     } catch (error: any) {
       const message =
         error.message || 'Erreur lors de la connexion';
