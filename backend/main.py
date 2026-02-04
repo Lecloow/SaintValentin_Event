@@ -17,8 +17,9 @@ import os
 from dotenv import load_dotenv
 import pandas as pd
 import sys
-import sqlite3
+import psycopg2
 from io import BytesIO
+from database import get_connection, init_database
 
 load_dotenv()
 
@@ -32,38 +33,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize database tables on startup
+init_database()
 
-DB_PATH = Path(__file__).resolve().parent / "data.db"
-db = sqlite3.connect(str(DB_PATH), check_same_thread=False)
-cursor = db.cursor()
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS passwords (
-    password TEXT PRIMARY KEY,
-    user_id INTEGER
-)
-""")
+def get_cursor():
+    """Helper function to get a database connection and cursor"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    return conn, cursor
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    first_name TEXT,
-    last_name TEXT,
-    email TEXT,
-    currentClass TEXT
-)
-""")
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS matches (
-    id TEXT PRIMARY KEY,
-    day1 TEXT,
-    day2 TEXT,
-    day3 TEXT
-)
-""")
-
-db.commit()
+def close_connection(conn, cursor):
+    """Helper function to close database connection and cursor"""
+    if cursor:
+        cursor.close()
+    if conn:
+        conn.close()
 
 # --------------------
 # MODELS
@@ -189,7 +175,7 @@ def convert_xlsx_to_json(input_path: str, output_path: str):
 
 
 def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
-    """Import a DataFrame (read from XLSX) directly into the SQLite DB.
+    """Import a DataFrame (read from XLSX) directly into the PostgreSQL DB.
 
     - df_raw: raw DataFrame loaded from the original XLSX (keeps the "Nom" column if present)
     - passwd_len: length of generated passwords
@@ -214,66 +200,73 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
     all_to_drop = drop_exact + drop_pattern
     df = df.drop(columns=[c for c in all_to_drop if c in df.columns])
 
-    # Clear existing tables
-    cursor.execute("DELETE FROM passwords")
-    cursor.execute("DELETE FROM users")
-    db.commit()
+    conn, cursor = get_cursor()
+    
+    try:
+        # Clear existing tables
+        cursor.execute("DELETE FROM passwords")
+        cursor.execute("DELETE FROM users")
+        conn.commit()
 
-    inserted = 0
+        inserted = 0
 
-    for idx, row in df.iterrows():
-        try:
-            raw_name = df_raw.at[idx, "Nom"] if "Nom" in df_raw.columns else None
-            name = parse_name(raw_name)
+        for idx, row in df.iterrows():
+            try:
+                raw_name = df_raw.at[idx, "Nom"] if "Nom" in df_raw.columns else None
+                name = parse_name(raw_name)
 
-            user_id = int(row["ID"]) if pd.notna(row.get("ID")) else None
-            first_name = name.get("first_name") or row.get("Prenom") or ""
-            last_name = name.get("last_name") or row.get("Nom") or ""
-            email = row.get("Adresse de messagerie") or row.get("Email") or row.get("email") or ""
+                user_id = int(row["ID"]) if pd.notna(row.get("ID")) else None
+                first_name = name.get("first_name") or row.get("Prenom") or ""
+                last_name = name.get("last_name") or row.get("Nom") or ""
+                email = row.get("Adresse de messagerie") or row.get("Email") or row.get("email") or ""
 
-            # Build answers dict from remaining columns
-            skip_cols = ["ID", "Adresse de messagerie"]
-            answers = {}
-            for col in df.columns:
-                if col not in skip_cols:
-                    value = row[col]
-                    clean_col = str(col).replace("\xa0", " ").strip()
-                    answers[clean_col] = str(value) if pd.notna(value) else None
+                # Build answers dict from remaining columns
+                skip_cols = ["ID", "Adresse de messagerie"]
+                answers = {}
+                for col in df.columns:
+                    if col not in skip_cols:
+                        value = row[col]
+                        clean_col = str(col).replace("\xa0", " ").strip()
+                        answers[clean_col] = str(value) if pd.notna(value) else None
 
-            # Try to construct currentClass from answers if possible
-            unit = answers.get("Dans quel unité es-tu ?") or answers.get("Dans quelle unité es-tu ?") or ""
-            classe = answers.get("Dans quelle classe es-tu ?") or answers.get("Dans quelle classe es-tu ?") or ""
-            currentClass = f"{unit} {classe}".strip()
+                # Try to construct currentClass from answers if possible
+                unit = answers.get("Dans quel unité es-tu ?") or answers.get("Dans quelle unité es-tu ?") or ""
+                classe = answers.get("Dans quelle classe es-tu ?") or answers.get("Dans quelle classe es-tu ?") or ""
+                currentClass = f"{unit} {classe}".strip()
 
-            cursor.execute(
-                "INSERT OR REPLACE INTO users (id, first_name, last_name, email, currentClass) VALUES (?, ?, ?, ?, ?)",
-                (str(user_id), first_name, last_name, email, currentClass)
-            )
+                cursor.execute(
+                    "INSERT INTO users (id, first_name, last_name, email, currentClass) VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name, email = EXCLUDED.email, currentClass = EXCLUDED.currentClass",
+                    (str(user_id), first_name, last_name, email, currentClass)
+                )
 
-            # generate and insert a unique password
-            try_count = 0
-            while try_count < 5:
-                code = generate_unique_password(passwd_len, cursor)
-                try:
-                    cursor.execute(
-                        "INSERT OR REPLACE INTO passwords (password, user_id) VALUES (?, ?)",
-                        (code, user_id)
-                    )
-                    break
-                except sqlite3.IntegrityError:
-                    try_count += 1
+                # generate and insert a unique password
+                try_count = 0
+                while try_count < 5:
+                    code = generate_unique_password(passwd_len, cursor)
+                    try:
+                        cursor.execute(
+                            "INSERT INTO passwords (password, user_id) VALUES (%s, %s) ON CONFLICT (password) DO UPDATE SET user_id = EXCLUDED.user_id",
+                            (code, user_id)
+                        )
+                        break
+                    except psycopg2.IntegrityError:
+                        try_count += 1
+                        conn.rollback()
+                        continue
+                else:
+                    logging.warning(f"Failed to generate unique password for user {user_id}")
                     continue
-            else:
-                logging.warning(f"Failed to generate unique password for user {user_id}")
+
+                inserted += 1
+            except Exception as e:
+                logging.exception(f"Skipping row {idx} due to error: {e}")
+                conn.rollback()
                 continue
 
-            inserted += 1
-        except Exception as e:
-            logging.exception(f"Skipping row {idx} due to error: {e}")
-            continue
-
-    db.commit()
-    return {"imported": inserted, "password_length": passwd_len}
+        conn.commit()
+        return {"imported": inserted, "password_length": passwd_len}
+    finally:
+        close_connection(conn, cursor)
 
 
 def import_xlsx_from_path(file_path: str, passwd_len: int = 6) -> dict:
@@ -312,49 +305,52 @@ async def import_xlsx(file: UploadFile | None = File(None), file_path: str | Non
 
 @app.get("/download-db/")
 async def download_db():
-    """Télécharge la base de données SQLite"""
-    if not DB_PATH.exists():
-        raise HTTPException(status_code=404, detail="DB not found")
+    """Download database is not available for PostgreSQL"""
+    raise HTTPException(status_code=501, detail="Database download not supported for PostgreSQL")
 
-    return FileResponse(
-        path=DB_PATH,
-        filename="data.db",
-        media_type='application/octet-stream'
-    )
+
 @app.post("/login")
 def check_code(payload: CodePayload):
-    row = cursor.execute(
-        "SELECT * FROM passwords WHERE password = ?",
-        (payload.password,)
-    ).fetchone()
+    conn, cursor = get_cursor()
+    
+    try:
+        cursor.execute(
+            "SELECT * FROM passwords WHERE password = %s",
+            (payload.password,)
+        )
+        row = cursor.fetchone()
 
-    if not row:
-        raise HTTPException(403, "Code invalide")
+        if not row:
+            raise HTTPException(403, "Code invalide")
 
-    #return HTTPException(200, "user_id:", row[1])  # user_id
-    user_id = row[1]
-    user_row = cursor.execute(
-        "SELECT id, first_name, last_name, email, currentClass FROM users WHERE id = ?",
-        (str(user_id),),
-    ).fetchone()
+        #return HTTPException(200, "user_id:", row[1])  # user_id
+        user_id = row[1]
+        cursor.execute(
+            "SELECT id, first_name, last_name, email, currentClass FROM users WHERE id = %s",
+            (str(user_id),),
+        )
+        user_row = cursor.fetchone()
 
-    if user_row:
-        return {
-            "id": user_row[0],
-            "first_name": user_row[1],
-            "last_name": user_row[2],
-            "email": user_row[3],
-            "currentClass": user_row[4],
-        }
+        if user_row:
+            return {
+                "id": user_row[0],
+                "first_name": user_row[1],
+                "last_name": user_row[2],
+                "email": user_row[3],
+                "currentClass": user_row[4],
+            }
 
-    return {"user_id": user_id}
+        return {"user_id": user_id}
+    finally:
+        close_connection(conn, cursor)
 
 
-def generate_unique_password(length: int, cursor: sqlite3.Cursor) -> str:
+def generate_unique_password(length: int, cursor) -> str:
     chars = string.ascii_lowercase + string.digits
     for _ in range(10000):
         code = ''.join(secrets.choice(chars) for _ in range(length))
-        if cursor.execute("SELECT 1 FROM passwords WHERE password = ?", (code,)).fetchone():
+        cursor.execute("SELECT 1 FROM passwords WHERE password = %s", (code,))
+        if cursor.fetchone():
             continue
         return code
     raise RuntimeError("Failed to generate a unique password after max attempts")
