@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from pathlib3 import Path
-import sqlite3
 import json
 import datetime
 import random
@@ -18,6 +17,8 @@ import os
 from dotenv import load_dotenv
 import pandas as pd
 import sys
+import sqlite3
+from io import BytesIO
 
 load_dotenv()
 
@@ -186,20 +187,126 @@ def convert_xlsx_to_json(input_path: str, output_path: str):
         json.dump(results, f, ensure_ascii=False, indent=2)
 
 
-@app.post("/upload-xlsx/")
-async def upload_xlsx(file: UploadFile = File(...)):
-    """Upload un fichier XLSX et le sauvegarde"""
-    file_location = Path(__file__).resolve().parent / "input.xlsx"
+def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
+    """Import a DataFrame (read from XLSX) directly into the SQLite DB.
 
-    with open(file_location, "wb") as f:
-        contents = await file.read()
-        f.write(contents)
+    - df_raw: raw DataFrame loaded from the original XLSX (keeps the "Nom" column if present)
+    - passwd_len: length of generated passwords
 
-    return {
-        "message": "Fichier uploadé avec succès",
-        "filename": file.filename,
-        "location": str(file_location)
-    }
+    Returns: dict with keys {imported, password_length}
+    """
+    # Work on a copy and drop unwanted columns (same logic as before)
+    df = df_raw.copy()
+
+    drop_exact = [
+        "Heure de début",
+        "Heure de fin",
+        "Heure de la dernière modification",
+        "Total points",
+        "Quiz feedback",
+        "Nom",
+    ]
+    drop_pattern = df.columns[
+        df.columns.str.startswith("Points - ")
+        | df.columns.str.startswith("Feedback - ")
+    ].tolist()
+    all_to_drop = drop_exact + drop_pattern
+    df = df.drop(columns=[c for c in all_to_drop if c in df.columns])
+
+    # Clear existing tables
+    cursor.execute("DELETE FROM passwords")
+    cursor.execute("DELETE FROM users")
+    db.commit()
+
+    inserted = 0
+
+    for idx, row in df.iterrows():
+        try:
+            raw_name = df_raw.at[idx, "Nom"] if "Nom" in df_raw.columns else None
+            name = parse_name(raw_name)
+
+            user_id = int(row["ID"]) if pd.notna(row.get("ID")) else None
+            first_name = name.get("first_name") or row.get("Prenom") or ""
+            last_name = name.get("last_name") or row.get("Nom") or ""
+            email = row.get("Adresse de messagerie") or row.get("Email") or row.get("email") or ""
+
+            # Build answers dict from remaining columns
+            skip_cols = ["ID", "Adresse de messagerie"]
+            answers = {}
+            for col in df.columns:
+                if col not in skip_cols:
+                    value = row[col]
+                    clean_col = str(col).replace("\xa0", " ").strip()
+                    answers[clean_col] = str(value) if pd.notna(value) else None
+
+            # Try to construct currentClass from answers if possible
+            unit = answers.get("Dans quel unité es-tu ?") or answers.get("Dans quelle unité es-tu ?") or ""
+            classe = answers.get("Dans quelle classe es-tu ?") or answers.get("Dans quelle classe es-tu ?") or ""
+            currentClass = f"{unit} {classe}".strip()
+
+            cursor.execute(
+                "INSERT OR REPLACE INTO users (id, first_name, last_name, email, currentClass) VALUES (?, ?, ?, ?, ?)",
+                (str(user_id), first_name, last_name, email, currentClass)
+            )
+
+            # generate and insert a unique password
+            try_count = 0
+            while try_count < 5:
+                code = generate_unique_password(passwd_len, cursor)
+                try:
+                    cursor.execute(
+                        "INSERT OR REPLACE INTO passwords (password, user_id) VALUES (?, ?)",
+                        (code, user_id)
+                    )
+                    break
+                except sqlite3.IntegrityError:
+                    try_count += 1
+                    continue
+            else:
+                logging.warning(f"Failed to generate unique password for user {user_id}")
+                continue
+
+            inserted += 1
+        except Exception as e:
+            logging.exception(f"Skipping row {idx} due to error: {e}")
+            continue
+
+    db.commit()
+    return {"imported": inserted, "password_length": passwd_len}
+
+
+def import_xlsx_from_path(file_path: str, passwd_len: int = 6) -> dict:
+    """Helper to read an XLSX from disk and import it into DB (calls import_xlsx_df)."""
+    p = Path(file_path)
+    if not p.exists():
+        raise FileNotFoundError(file_path)
+    df_raw = pd.read_excel(p, dtype=object)
+    return import_xlsx_df(df_raw, passwd_len)
+
+
+# Refactor endpoint to use the reusable functions
+@app.post("/import-xlsx")
+async def import_xlsx(file: UploadFile | None = File(None), file_path: str | None = None, passwd_len: int = 6):
+    """Importe un fichier XLSX (upload ou path) directement dans la base SQLite sans créer de fichier JSON.
+
+    This endpoint now simply reads the XLSX (either uploaded bytes or a path) and calls
+    `import_xlsx_df` so the same logic can be used programmatically.
+    """
+    if file is None and file_path is None:
+        raise HTTPException(status_code=400, detail="Provide either an uploaded file or a file_path")
+
+    # Read DataFrame
+    try:
+        if file is not None:
+            contents = await file.read()
+            df_raw = pd.read_excel(BytesIO(contents), dtype=object)
+        else:
+            df_raw = pd.read_excel(Path(file_path), dtype=object)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read XLSX: {e}")
+
+    result = import_xlsx_df(df_raw, passwd_len)
+    return result
 
 
 @app.get("/download-db/")
@@ -253,71 +360,6 @@ def generate_unique_password(length: int, cursor: sqlite3.Cursor) -> str:
         return code
     raise RuntimeError("Failed to generate a unique password after max attempts")
 
-@app.post("/import")
-def import_users_from_json(passwd_len: int = 6):
-    input_path = Path(__file__).resolve().parent / 'input.xlsx'
-    outpu_path = Path(__file__).resolve().parent / 'input.json'
-    convert_xlsx_to_json(input_path, outpu_path)
-
-    path = Path(__file__).resolve().parent / 'input.json'
-    if not path.exists():
-        raise HTTPException(status_code=404, detail=f"File not found: {path}")
-
-    cursor.execute("DELETE FROM passwords")
-    cursor.execute("DELETE FROM users")
-    db.commit()
-
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    # normalize to a list of user dicts
-    if isinstance(data, dict):
-        users = data.get("users") or data.get("data") or [data]
-    elif isinstance(data, list):
-        users = data
-    else:
-        raise HTTPException(status_code=400, detail="Unsupported JSON format")
-
-    # preload existing passwords to avoid duplicates during this run
-    inserted = 0
-    for u in users:
-        id = u.get("id")
-
-        first_name = u.get("first_name")
-        last_name = u.get("last_name")
-        email = u.get("email")
-        currentClass = f"{u.get("answers")["Dans quel unité es-tu ?"]} {u.get("answers")["Dans quelle classe es-tu ?"]}"
-
-        cursor.execute(
-            "INSERT OR REPLACE INTO users (id, first_name, last_name, email, currentClass) VALUES (?, ?, ?, ?, ?)",
-            (id, first_name, last_name, email, currentClass)
-        )
-
-        # try to generate and insert a unique password, handle rare race conditions
-        try_count = 0
-        while try_count < 5:
-            code = generate_unique_password(passwd_len, cursor)
-            try:
-                cursor.execute(
-                    "INSERT OR REPLACE INTO passwords (password, user_id) VALUES (?, ?)",
-                    (code, id)
-                )
-                break
-            except sqlite3.IntegrityError:
-                try_count += 1
-                continue
-        else:
-            # give up for this user after retries
-            print(f"Failed to generate unique password for user {id}")
-            continue
-
-        inserted += 1
-
-    db.commit()
-    return {"imported": inserted, "password_length": passwd_len}
-
-
-
 @app.post("/send-emails")
 def sendEmails(destinataire: str, code: str):
     print("Launching sendEmails...")
@@ -337,6 +379,7 @@ def sendEmails(destinataire: str, code: str):
     corps = f"Ceci est ton code d'accès : {code}"
     message.attach(MIMEText(corps, "plain"))
 
+    server = None
     try:
         server = smtplib.SMTP(smtp_server, port)
         server.starttls()  # Sécuriser la connexion
