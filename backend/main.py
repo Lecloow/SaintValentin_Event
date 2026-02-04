@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pathlib3 import Path
@@ -190,6 +190,21 @@ def convert_xlsx_to_json(input_path: str, output_path: str):
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(results, f, ensure_ascii=False, indent=2)
 
+
+@app.post("/upload-xlsx/")
+async def upload_xlsx(file: UploadFile = File(...)):
+    """Upload un fichier XLSX et le sauvegarde"""
+    file_location = Path(__file__).resolve().parent / "input.xlsx"
+
+    with open(file_location, "wb") as f:
+        contents = await file.read()
+        f.write(contents)
+
+    return {
+        "message": "Fichier uploadé avec succès",
+        "filename": file.filename,
+        "location": str(file_location)
+    }
 @app.post("/login")
 def check_code(payload: CodePayload):
     row = cursor.execute(
