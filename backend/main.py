@@ -8,7 +8,6 @@ import datetime
 import random
 import string
 import secrets
-import os
 import smtplib
 import ssl
 import logging
