@@ -362,32 +362,22 @@ def generate_unique_password(length: int, cursor) -> str:
     raise RuntimeError("Failed to generate a unique password after max attempts")
 
 
-@app.post("/send-emails")
-def sendEmails(destinataire: str, code: str):
-    print("Launching sendEmails...")
-
+@app.post("/send-email")
+async def sendOneMail(email: str, code: str):
     try:
-        # Force timeout
-        socket.setdefaulttimeout(30)
-
-        message = MIMEMultipart()
-        message["From"] = os.getenv('EMAIL')
-        message["To"] = destinataire
-        message["Subject"] = "Code d'accès Saint-Valentin"
-        message.attach(MIMEText(f"Ceci est ton code d'accès : {code}", "plain"))
-
-        # Essaie outlook.office365.com au lieu de smtp.office365.com
-        server = smtplib.SMTP("smtp.office365.com", 587, timeout=30)
-        server.starttls()
-        server.login(os.getenv('EMAIL'), os.getenv('PASSWORD'))
-        server.send_message(message)
-        server.quit()
-
-        return {"status_code": 200, "message": "Email envoyé avec succès"}
-
-    except Exception as e:
-        print(f"❌ Erreur: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erreur : {str(e)}")
+        response = requests.post(
+            f"https://api.mailgun.net/v3/{os.getenv('MAILGUN_DOMAIN')}/messages",
+            auth=("api", os.getenv('MAILGUN_API_KEY')),
+            data={
+                "from": f"noreply@{os.getenv('MAILGUN_DOMAIN')}",
+                "to": email,
+                "subject": "Code d'accès Saint-Valentin",
+                "text": f"Ceci est ton code d'accès : {code}"
+            }
+        )
+        return response.status_code == 200
+    except:
+        return False
 
 
 @app.post("/createMatches")
