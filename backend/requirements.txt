@@ -9,3 +9,4 @@ pydantic==2.12.5
 pip==24.3.1
 dotenv==0.9.9
 psycopg[binary,pool]>=3.3.2
+requests==2.32.5
