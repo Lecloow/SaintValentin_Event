@@ -20,6 +20,7 @@ import sys
 import psycopg
 from io import BytesIO
 import socket
+import requests
 
 load_dotenv()
 
