@@ -19,6 +19,7 @@ import pandas as pd
 import sys
 import psycopg
 from io import BytesIO
+import socket
 
 load_dotenv()
 
@@ -364,71 +365,31 @@ def generate_unique_password(length: int, cursor) -> str:
 @app.post("/send-emails")
 def sendEmails(destinataire: str, code: str):
     print("Launching sendEmails...")
-    expediteur = os.getenv('EMAIL')
-    mot_de_passe = os.getenv('PASSWORD')
-    destinataire = destinataire
 
-    smtp_server = "smtp.office365.com"
-    port = 587
-    print("trying to connect")
-
-    message = MIMEMultipart()
-    message["From"] = expediteur
-    message["To"] = destinataire
-    message["Subject"] = "Test email"
-
-    corps = f"Ceci est ton code d'accès : {code}"
-    message.attach(MIMEText(corps, "plain"))
-
-    server = None
     try:
-        server = smtplib.SMTP(smtp_server, port)
-        server.starttls()  # Sécuriser la connexion
-        server.login(expediteur, mot_de_passe)
+        # Force timeout
+        socket.setdefaulttimeout(30)
+
+        message = MIMEMultipart()
+        message["From"] = os.getenv('EMAIL')
+        message["To"] = destinataire
+        message["Subject"] = "Code d'accès Saint-Valentin"
+        message.attach(MIMEText(f"Ceci est ton code d'accès : {code}", "plain"))
+
+        # Essaie outlook.office365.com au lieu de smtp.office365.com
+        server = smtplib.SMTP("smtp.office365.com", 587, timeout=30)
+        server.starttls()
+        server.login(os.getenv('EMAIL'), os.getenv('PASSWORD'))
         server.send_message(message)
         server.quit()
+
         return {"status_code": 200, "message": "Email envoyé avec succès"}
 
     except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Erreur inconnue : {str(e)}"
-        )
-
-    finally:
-        if server:
-            try:
-                server.quit()
-            except:
-                pass
+        print(f"❌ Erreur: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erreur : {str(e)}")
 
 
 @app.post("/createMatches")
 def createMatches():
     return {"created": 1}
-
-
-@app.get("/check-db")
-def check_db():
-    """Vérifie les données dans la DB PostgreSQL"""
-    try:
-        cursor.execute("SELECT COUNT(*) FROM passwords")
-        password_count = cursor.fetchone()[0]
-
-        cursor.execute("SELECT COUNT(*) FROM users")
-        user_count = cursor.fetchone()[0]
-
-        cursor.execute("SELECT * FROM passwords LIMIT 5")
-        passwords = cursor.fetchall()
-
-        return {
-            "passwords_count": password_count,
-            "users_count": user_count,
-            "first_5_passwords": passwords,
-            "status": "✅ DB connected" if password_count > 0 else "⚠️ DB is empty"
-        }
-    except Exception as e:
-        return {
-            "error": str(e),
-            "status": "❌ DB connection failed"
-        }
