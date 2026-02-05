@@ -362,22 +362,33 @@ def generate_unique_password(length: int, cursor) -> str:
     raise RuntimeError("Failed to generate a unique password after max attempts")
 
 
-@app.post("/send-email")
-async def sendOneMail(email: str, code: str):
+@app.post("/send-emails")
+def sendEmails(destinataire: str, code: str):
+    print("Launching sendEmails...")
+    
     try:
         response = requests.post(
             f"https://api.mailgun.net/v3/{os.getenv('MAILGUN_DOMAIN')}/messages",
             auth=("api", os.getenv('MAILGUN_API_KEY')),
             data={
                 "from": f"noreply@{os.getenv('MAILGUN_DOMAIN')}",
-                "to": email,
+                "to": destinataire,
                 "subject": "Code d'accès Saint-Valentin",
                 "text": f"Ceci est ton code d'accès : {code}"
             }
         )
-        return response.status_code == 200
-    except:
-        return False
+        
+        print(f"Status: {response.status_code}")
+        print(f"Response: {response.text}")
+        
+        if response.status_code == 200:
+            return {"status_code": 200, "message": "Email envoyé avec succès"}
+        else:
+            raise Exception(response.text)
+    
+    except Exception as e:
+        print(f"❌ Erreur: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Erreur : {str(e)}")
 
 
 @app.post("/createMatches")
