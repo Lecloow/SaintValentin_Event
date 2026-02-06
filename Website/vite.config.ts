@@ -9,7 +9,8 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: 'index.html',
-        profile: 'profile.html'
+        profile: 'profile.html',
+        questionnaire: 'questionnaire.html'
       }
     }
   }

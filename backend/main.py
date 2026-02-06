@@ -129,14 +129,6 @@ cursor.execute("""
                )
                """)
 
-cursor.execute("""
-               CREATE TABLE IF NOT EXISTS answers
-               (
-                   user_id TEXT PRIMARY KEY,
-                   answers_json TEXT
-               )
-               """)
-
 db.commit()
 
 
@@ -273,7 +265,6 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
     # Clear existing tables
     cursor.execute("DELETE FROM passwords")
     cursor.execute("DELETE FROM users")
-    cursor.execute("DELETE FROM answers")
     db.commit()
 
     inserted = 0
@@ -311,14 +302,6 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
                     email = EXCLUDED.email,
                     currentClass = EXCLUDED.currentClass""",
                 (str(user_id), first_name, last_name, email, currentClass)
-            )
-
-            # Store answers in JSON format
-            cursor.execute(
-                """INSERT INTO answers (user_id, answers_json)
-                   VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE
-                   SET answers_json = EXCLUDED.answers_json""",
-                (str(user_id), json.dumps(answers))
             )
 
             # generate and insert a unique password
