@@ -96,7 +96,22 @@ cursor.execute("""
                    email
                    TEXT,
                    currentClass
-                   TEXT
+                   TEXT,
+                   q3 INTEGER,
+                   q4 INTEGER,
+                   q5 INTEGER,
+                   q6 INTEGER,
+                   q7 INTEGER,
+                   q8 INTEGER,
+                   q9 INTEGER,
+                   q10 INTEGER,
+                   q11 INTEGER,
+                   q12 INTEGER,
+                   q13 INTEGER,
+                   q14 INTEGER,
+                   q15 INTEGER,
+                   q16 INTEGER,
+                   q17 INTEGER
                )
                """)
 
@@ -110,17 +125,7 @@ cursor.execute("""
                    day1
                    TEXT,
                    day2
-                   TEXT,
-                   day3
                    TEXT
-               )
-               """)
-
-cursor.execute("""
-               CREATE TABLE IF NOT EXISTS answers
-               (
-                   user_id TEXT PRIMARY KEY,
-                   answers_json TEXT
                )
                """)
 
@@ -175,6 +180,182 @@ def score(a: dict, b: dict) -> int:
         if k in b and a[k] == b[k]:
             s += 1
     return s
+
+
+# Answer mapping: Maps question text answers to integer values (1-4)
+ANSWER_MAPPINGS = {
+    "Quel est ton style de musique préféré ?": {
+        "Rap": 1,
+        "Pop": 2,
+        "Rock": 3,
+        "Autre": 4,
+    },
+    "Quel est pour toi le voyage idéal ?": {
+        "Voyage en famille": 1,
+        "Voyage entre amis": 2,
+        "Voyage en couple": 3,
+        "Voyage solo": 4,
+    },
+    "Quelle est ta destination de rêve ?": {
+        "Londres": 1,
+        "Séoul": 2,
+        "Marrakech": 3,
+        "Rio de Janeiro": 4,
+    },
+    "Quel est ton genre de film/série préféré ?": {
+        "Science-Fiction": 1,
+        "Drame": 2,
+        "Comédie": 3,
+        "Action": 4,
+    },
+    "Tu passes le plus de temps sur :": {
+        "Instagram": 1,
+        "Snapchat": 2,
+        "TikTok": 3,
+        "Je ne suis pas vraiment sur les réseaux": 4,
+    },
+    "A l'école tu préfères :": {
+        "Histoire-Géographie": 1,
+        "Anglais": 2,
+        "Sport": 3,
+        "Français/Philosophie": 4,
+    },
+    "Au petit-déjeuner c'est plutôt :": {
+        "Café/Thé": 1,
+        "Jus de fruit": 2,
+        "Eau": 3,
+        "Soda": 4,
+    },
+    "Au petit-déjeuner c'est plutôt :\xa0": {  # With non-breaking space
+        "Café/Thé": 1,
+        "Jus de fruit": 2,
+        "Eau": 3,
+        "Soda": 4,
+    },
+    "A Passy, le midi tu préfères être :": {
+        "Dehors": 1,
+        "Dans l'atrium": 2,
+        "Dans la cour": 3,
+        "En salle Verte/Bleue": 4,
+    },
+    "Avec 1.000.000 d'euros tu ferais plutôt :": {
+        "Un don à un association": 1,
+        "L'achat d'une maison dans le Sud": 2,
+        "Un investissement boursier": 3,
+        "Du shopping sur les Champs": 4,
+    },
+    "Comme super pouvoir, tu préfèrerais pouvoir :": {
+        "Voler": 1,
+        "Etre invisible": 2,
+        "Lire dans les pensée": 3,
+        "Remonter le temps": 4,
+    },
+    "Quelle est ta saison préférée :": {
+        "Été": 1,
+        "Automne": 2,
+        "Hiver": 3,
+        "Printemps": 4,
+    },
+    "Tu préfères lire :": {
+        "Des romans": 1,
+        "Des BD/mangas": 2,
+        "Les journaux": 3,
+        "Lire ?": 4,
+    },
+    "Tu préfères pratiquer quel sport :": {
+        "Sport de raquette": 1,
+        "Sport collectif": 2,
+        "Sport de performance (athlétisme, natation...)": 3,
+        "Sport de combat": 4,
+    },
+    "Tu préfères pratiquer quel sport :\xa0": {  # With non-breaking space
+        "Sport de raquette": 1,
+        "Sport collectif": 2,
+        "Sport de performance (athlétisme, natation...)": 3,
+        "Sport de combat": 4,
+    },
+    "Quelle est ta soirée idéale ?": {
+        "Soirée cinéma": 1,
+        "Soirée entre amis": 2,
+        "Soirée dodo": 3,
+        "Soirée gaming": 4,
+    },
+    "Si tu pouvais dîner avec une personne historique ce serait :": {
+        "Michael Jackson": 1,
+        "Jules César": 2,
+        "Pelé": 3,
+        "Pythagore (même si t'as oublié son théorème)": 4,
+    },
+}
+
+# Map question text to column names
+QUESTION_TO_COLUMN = {
+    "Quel est ton style de musique préféré ?": "q3",
+    "Quel est pour toi le voyage idéal ?": "q4",
+    "Quelle est ta destination de rêve ?": "q5",
+    "Quel est ton genre de film/série préféré ?": "q6",
+    "Tu passes le plus de temps sur :": "q7",
+    "A l'école tu préfères :": "q8",
+    "Au petit-déjeuner c'est plutôt :": "q9",
+    "Au petit-déjeuner c'est plutôt :\xa0": "q9",  # With non-breaking space
+    "A Passy, le midi tu préfères être :": "q10",
+    "Avec 1.000.000 d'euros tu ferais plutôt :": "q11",
+    "Comme super pouvoir, tu préfèrerais pouvoir :": "q12",
+    "Quelle est ta saison préférée :": "q13",
+    "Tu préfères lire :": "q14",
+    "Tu préfères pratiquer quel sport :": "q15",
+    "Tu préfères pratiquer quel sport :\xa0": "q15",  # With non-breaking space
+    "Quelle est ta soirée idéale ?": "q16",
+    "Si tu pouvais dîner avec une personne historique ce serait :": "q17",
+}
+
+
+def parse_answer(question: str, answer: str) -> int | None:
+    """Parse a text answer and convert it to integer (1-4).
+    
+    Args:
+        question: The question text
+        answer: The answer text
+        
+    Returns:
+        Integer value (1-4) or None if answer cannot be mapped
+    """
+    if not answer or pd.isna(answer):
+        return None
+    
+    # Clean up the answer (remove extra spaces, normalize)
+    answer = str(answer).strip()
+    
+    # Normalize the question (remove non-breaking spaces, extra spaces)
+    question_normalized = question.replace('\xa0', ' ').replace('  ', ' ').strip()
+    
+    # Try to find the mapping for this question (try variations)
+    mapping = None
+    for q_key in ANSWER_MAPPINGS.keys():
+        q_key_normalized = q_key.replace('\xa0', ' ').replace('  ', ' ').strip()
+        if q_key_normalized == question_normalized or q_key == question:
+            mapping = ANSWER_MAPPINGS[q_key]
+            break
+    
+    if mapping is None:
+        return None
+    
+    # Try exact match first
+    if answer in mapping:
+        return mapping[answer]
+    
+    # Try case-insensitive match
+    for key, value in mapping.items():
+        if key.lower() == answer.lower():
+            return value
+    
+    # Try partial match (for typos or extra spaces)
+    for key, value in mapping.items():
+        if key.lower() in answer.lower() or answer.lower() in key.lower():
+            return value
+    
+    logging.warning(f"Could not map answer '{answer}' for question '{question}'")
+    return None
 
 
 def parse_name(full_name: str) -> dict:
@@ -241,7 +422,6 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
     # Clear existing tables
     cursor.execute("DELETE FROM passwords")
     cursor.execute("DELETE FROM users")
-    cursor.execute("DELETE FROM answers")
     db.commit()
 
     inserted = 0
@@ -270,6 +450,27 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
             classe = answers.get("Dans quelle classe es-tu ?") or answers.get("Dans quelle classe es-tu ?") or ""
             currentClass = f"{unit} {classe}".strip()
 
+            # Parse answers for questions 3-17 and convert to integers
+            parsed_answers = {}
+            for question_text, column_name in QUESTION_TO_COLUMN.items():
+                # Try to find the question in the answers dict (with possible variations)
+                answer_text = answers.get(question_text)
+                if answer_text is None:
+                    # Try variations with spaces/special chars
+                    for key in answers.keys():
+                        if key and question_text.replace(" ", "").lower() == key.replace(" ", "").lower():
+                            answer_text = answers[key]
+                            break
+                
+                # Convert text answer to integer
+                if answer_text:
+                    parsed_value = parse_answer(question_text, answer_text)
+                    if parsed_value is not None:
+                        parsed_answers[column_name] = parsed_value
+                    else:
+                        logging.warning(f"Could not parse answer for user {user_id}, question: {question_text}, answer: {answer_text}")
+
+            # Insert or update user with basic info
             cursor.execute(
                 """INSERT INTO users (id, first_name, last_name, email, currentClass)
                    VALUES (%s, %s, %s, %s, %s) ON CONFLICT (id) DO
@@ -281,13 +482,19 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
                 (str(user_id), first_name, last_name, email, currentClass)
             )
 
-            # Store answers in JSON format
-            cursor.execute(
-                """INSERT INTO answers (user_id, answers_json)
-                   VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE
-                   SET answers_json = EXCLUDED.answers_json""",
-                (str(user_id), json.dumps(answers))
-            )
+            # Update user with parsed answers if we have any
+            if parsed_answers:
+                # Build dynamic UPDATE query for available answers
+                set_clauses = []
+                values = []
+                for col, val in parsed_answers.items():
+                    set_clauses.append(f"{col} = %s")
+                    values.append(val)
+                
+                if set_clauses:
+                    values.append(str(user_id))
+                    update_query = f"UPDATE users SET {', '.join(set_clauses)} WHERE id = %s"
+                    cursor.execute(update_query, values)
 
             # generate and insert a unique password
             try_count = 0
@@ -413,12 +620,12 @@ def sendEmails(destinataire: str, code: str):
 def createMatches():
     """Create soulmate matches based on answer similarity within the same level."""
     try:
-        # Fetch all users with their answers
+        # Fetch all users with their answers from the users table directly
         cursor.execute("""
-            SELECT u.id, u.first_name, u.last_name, u.currentClass, a.answers_json
-            FROM users u
-            LEFT JOIN answers a ON u.id = a.user_id
-            WHERE a.answers_json IS NOT NULL
+            SELECT id, first_name, last_name, currentClass,
+                   q3, q4, q5, q6, q7, q8, q9, q10, q11, q12, q13, q14, q15, q16, q17
+            FROM users
+            WHERE q3 IS NOT NULL
         """)
         rows = cursor.fetchall()
         
@@ -428,8 +635,16 @@ def createMatches():
         # Build a list of users with their data
         users = []
         for row in rows:
-            user_id, first_name, last_name, current_class, answers_json = row
-            answers = json.loads(answers_json) if answers_json else {}
+            user_id = row[0]
+            first_name = row[1]
+            last_name = row[2]
+            current_class = row[3]
+            # Create answers dict from q3-q17 columns
+            answers = {
+                'q3': row[4], 'q4': row[5], 'q5': row[6], 'q6': row[7], 'q7': row[8],
+                'q8': row[9], 'q9': row[10], 'q10': row[11], 'q11': row[12], 'q12': row[13],
+                'q13': row[14], 'q14': row[15], 'q15': row[16], 'q16': row[17], 'q17': row[18]
+            }
             # Extract level from currentClass (e.g., "Terminale F" -> "Terminale")
             level = current_class.split()[0] if current_class and current_class.strip() else ""
             users.append({
