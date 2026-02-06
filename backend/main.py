@@ -529,11 +529,6 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
 # Refactor endpoint to use the reusable functions
 @app.post("/import-xlsx")
 async def import_xlsx(file: UploadFile, passwd_len: int = 6):
-    """Importe un fichier XLSX (upload ou path) directement dans la base PostgreSQL sans créer de fichier JSON.
-
-    This endpoint now simply reads the XLSX (either uploaded bytes or a path) and calls
-    `import_xlsx_df` so the same logic can be used programmatically.
-    """
     if file is None:
         raise HTTPException(status_code=400, detail="Provide either an uploaded file or a file_path")
 
@@ -558,7 +553,6 @@ def check_code(payload: CodePayload):
     if not row:
         raise HTTPException(403, "Code invalide")
 
-    # return HTTPException(200, "user_id:", row[1])  # user_id
     user_id = row[1]
     user_row = cursor.execute(
         "SELECT id, first_name, last_name, email, currentClass FROM users WHERE id = %s",
@@ -587,38 +581,11 @@ def generate_unique_password(length: int, cursor) -> str:
     raise RuntimeError("Failed to generate a unique password after max attempts")
 
 
-@app.post("/send-emails")
-def sendEmails(destinataire: str, code: str):
-    print("Launching sendEmails...")
-    
-    try:
-        response = requests.post(
-            f"https://api.mailgun.net/v3/{os.getenv('MAILGUN_DOMAIN')}/messages",
-            auth=("api", os.getenv('MAILGUN_API_KEY')),
-            data={
-                "from": f"noreply@{os.getenv('MAILGUN_DOMAIN')}",
-                "to": destinataire,
-                "subject": "Code d'accès Saint-Valentin",
-                "text": f"Ceci est ton code d'accès : {code}"
-            }
-        )
-        
-        print(f"Status: {response.status_code}")
-        print(f"Response: {response.text}")
-        
-        if response.status_code == 200:
-            return {"status_code": 200, "message": "Email envoyé avec succès"}
-        else:
-            raise Exception(response.text)
-    
-    except Exception as e:
-        print(f"❌ Erreur: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Erreur : {str(e)}")
 
 
 @app.post("/createMatches")
 def createMatches():
-    """Create soulmate matches based on answer similarity within the same level."""
+    """Create matches based on answer similarity within the same level."""
     try:
         # Fetch all users with their answers from the users table directly
         cursor.execute("""
