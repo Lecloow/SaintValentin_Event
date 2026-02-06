@@ -119,12 +119,8 @@ cursor.execute("""
 cursor.execute("""
                CREATE TABLE IF NOT EXISTS answers
                (
-                   user_id
-                   TEXT
-                   PRIMARY
-                   KEY,
-                   answers_json
-                   TEXT
+                   user_id TEXT PRIMARY KEY,
+                   answers_json TEXT
                )
                """)
 
@@ -288,8 +284,8 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
             # Store answers in JSON format
             cursor.execute(
                 """INSERT INTO answers (user_id, answers_json)
-                   VALUES (%s, %s) ON CONFLICT (user_id) DO
-                UPDATE SET answers_json = EXCLUDED.answers_json""",
+                   VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE
+                   SET answers_json = EXCLUDED.answers_json""",
                 (str(user_id), json.dumps(answers))
             )
 
@@ -493,16 +489,24 @@ def createMatches():
             if len(used) < n:
                 unmatched = [idx for idx in range(n) if idx not in used]
                 if len(unmatched) == 1:
-                    # Find the pair with lowest score to make a trio
+                    # Find an existing pair and add this person to form a trio
+                    # The unmatched person will be matched with one person from a pair,
+                    # creating an indirect trio relationship
                     if day1_matches:
-                        # Add the unmatched person to an existing pair
-                        # Find a pair and add this person
+                        # Find the best match for the unmatched person among those already matched
+                        best_match_idx = None
+                        best_score = -1
                         for idx in range(n):
-                            if idx in day1_matches:
-                                # This creates a trio: idx, day1_matches[idx], unmatched[0]
-                                day1_matches[unmatched[0]] = idx
-                                used.add(unmatched[0])
-                                break
+                            if idx in used:
+                                compatibility = score(level_users[unmatched[0]]["answers"], level_users[idx]["answers"])
+                                if compatibility > best_score:
+                                    best_score = compatibility
+                                    best_match_idx = idx
+                        
+                        if best_match_idx is not None:
+                            day1_matches[unmatched[0]] = best_match_idx
+                            used.add(unmatched[0])
+                            logging.info(f"Formed trio: {unmatched[0]} matched with {best_match_idx} (who is already matched with {day1_matches[best_match_idx]})")
             
             # For day 2: match differently
             used2 = set()
@@ -519,22 +523,41 @@ def createMatches():
             # Handle remaining unmatched for day 2
             unmatched2 = [idx for idx in range(n) if idx not in used2]
             if len(unmatched2) == 1:
-                # Add to an existing pair
+                # Add to an existing pair to form a trio
                 if day2_matches:
+                    # Find best match for unmatched person
+                    best_match_idx = None
+                    best_score = -1
                     for idx in range(n):
-                        if idx in day2_matches:
-                            day2_matches[unmatched2[0]] = idx
-                            used2.add(unmatched2[0])
-                            break
+                        if idx in used2:
+                            compatibility = score(level_users[unmatched2[0]]["answers"], level_users[idx]["answers"])
+                            if compatibility > best_score:
+                                best_score = compatibility
+                                best_match_idx = idx
+                    
+                    if best_match_idx is not None:
+                        day2_matches[unmatched2[0]] = best_match_idx
+                        used2.add(unmatched2[0])
             elif len(unmatched2) == 2:
                 # Match the remaining two
                 day2_matches[unmatched2[0]] = unmatched2[1]
                 day2_matches[unmatched2[1]] = unmatched2[0]
             elif len(unmatched2) == 3:
-                # Create a trio
-                day2_matches[unmatched2[0]] = unmatched2[1]
-                day2_matches[unmatched2[1]] = unmatched2[0]
-                day2_matches[unmatched2[2]] = unmatched2[0]
+                # Create matches for three people - each gets one match
+                # Form pairs with best compatibility among the three
+                scores_trio = [
+                    (0, 1, score(level_users[unmatched2[0]]["answers"], level_users[unmatched2[1]]["answers"])),
+                    (0, 2, score(level_users[unmatched2[0]]["answers"], level_users[unmatched2[2]]["answers"])),
+                    (1, 2, score(level_users[unmatched2[1]]["answers"], level_users[unmatched2[2]]["answers"]))
+                ]
+                scores_trio.sort(key=lambda x: x[2], reverse=True)
+                # Use the best pair and match third person with one of them
+                best_i, best_j, _ = scores_trio[0]
+                day2_matches[unmatched2[best_i]] = unmatched2[best_j]
+                day2_matches[unmatched2[best_j]] = unmatched2[best_i]
+                # Match third person with one from the pair
+                third = [x for x in [0, 1, 2] if x not in [best_i, best_j]][0]
+                day2_matches[unmatched2[third]] = unmatched2[best_i]
             
             # Insert matches into database
             for idx, user in enumerate(level_users):
@@ -545,13 +568,10 @@ def createMatches():
                 day2_id = level_users[day2_match_idx]["id"] if day2_match_idx is not None else None
                 
                 cursor.execute(
-                    """INSERT INTO matches (id, day1, day2, day3)
-                       VALUES (%s, %s, %s, %s) ON CONFLICT (id) DO
-                    UPDATE SET
-                        day1 = EXCLUDED.day1,
-                        day2 = EXCLUDED.day2,
-                        day3 = EXCLUDED.day3""",
-                    (user["id"], day1_id, day2_id, None)
+                    """INSERT INTO matches (id, day1, day2)
+                       VALUES (%s, %s, %s) ON CONFLICT (id) DO UPDATE
+                       SET day1 = EXCLUDED.day1, day2 = EXCLUDED.day2""",
+                    (user["id"], day1_id, day2_id)
                 )
                 matches_created += 1
         
