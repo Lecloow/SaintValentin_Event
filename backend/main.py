@@ -431,7 +431,7 @@ def createMatches():
             user_id, first_name, last_name, current_class, answers_json = row
             answers = json.loads(answers_json) if answers_json else {}
             # Extract level from currentClass (e.g., "Terminale F" -> "Terminale")
-            level = current_class.split()[0] if current_class else ""
+            level = current_class.split()[0] if current_class and current_class.strip() else ""
             users.append({
                 "id": user_id,
                 "first_name": first_name,
@@ -506,7 +506,8 @@ def createMatches():
                         if best_match_idx is not None:
                             day1_matches[unmatched[0]] = best_match_idx
                             used.add(unmatched[0])
-                            logging.info(f"Formed trio: {unmatched[0]} matched with {best_match_idx} (who is already matched with {day1_matches[best_match_idx]})")
+                            partner = day1_matches.get(best_match_idx, "unknown")
+                            logging.info(f"Formed trio: {unmatched[0]} matched with {best_match_idx} (who is matched with {partner})")
             
             # For day 2: match differently
             used2 = set()
