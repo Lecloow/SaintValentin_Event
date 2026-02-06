@@ -96,7 +96,22 @@ cursor.execute("""
                    email
                    TEXT,
                    currentClass
-                   TEXT
+                   TEXT,
+                   q3 INTEGER,
+                   q4 INTEGER,
+                   q5 INTEGER,
+                   q6 INTEGER,
+                   q7 INTEGER,
+                   q8 INTEGER,
+                   q9 INTEGER,
+                   q10 INTEGER,
+                   q11 INTEGER,
+                   q12 INTEGER,
+                   q13 INTEGER,
+                   q14 INTEGER,
+                   q15 INTEGER,
+                   q16 INTEGER,
+                   q17 INTEGER
                )
                """)
 
@@ -110,8 +125,6 @@ cursor.execute("""
                    day1
                    TEXT,
                    day2
-                   TEXT,
-                   day3
                    TEXT
                )
                """)
@@ -155,6 +168,25 @@ class CodePayload(BaseModel):
 class AnswerPayload(BaseModel):
     code: str
     data: dict
+
+
+class SubmitAnswersPayload(BaseModel):
+    user_id: str
+    q3: int
+    q4: int
+    q5: int
+    q6: int
+    q7: int
+    q8: int
+    q9: int
+    q10: int
+    q11: int
+    q12: int
+    q13: int
+    q14: int
+    q15: int
+    q16: int
+    q17: int
 
 
 class Person(BaseModel):
@@ -370,6 +402,56 @@ def check_code(payload: CodePayload):
     return {"user_id": user_id}
 
 
+@app.post("/submit-answers")
+def submit_answers(payload: SubmitAnswersPayload):
+    """Submit user answers for questions 3-17."""
+    try:
+        # Verify user exists
+        user_row = cursor.execute(
+            "SELECT id FROM users WHERE id = %s",
+            (payload.user_id,)
+        ).fetchone()
+        
+        if not user_row:
+            raise HTTPException(404, "User not found")
+        
+        # Validate that all answers are between 1 and 4
+        answers = [
+            payload.q3, payload.q4, payload.q5, payload.q6, payload.q7,
+            payload.q8, payload.q9, payload.q10, payload.q11, payload.q12,
+            payload.q13, payload.q14, payload.q15, payload.q16, payload.q17
+        ]
+        
+        for ans in answers:
+            if ans < 1 or ans > 4:
+                raise HTTPException(400, f"Invalid answer value: {ans}. Must be between 1 and 4")
+        
+        # Update user with answers
+        cursor.execute(
+            """UPDATE users 
+               SET q3 = %s, q4 = %s, q5 = %s, q6 = %s, q7 = %s,
+                   q8 = %s, q9 = %s, q10 = %s, q11 = %s, q12 = %s,
+                   q13 = %s, q14 = %s, q15 = %s, q16 = %s, q17 = %s
+               WHERE id = %s""",
+            (
+                payload.q3, payload.q4, payload.q5, payload.q6, payload.q7,
+                payload.q8, payload.q9, payload.q10, payload.q11, payload.q12,
+                payload.q13, payload.q14, payload.q15, payload.q16, payload.q17,
+                payload.user_id
+            )
+        )
+        
+        db.commit()
+        
+        return {"status": "success", "message": "Answers submitted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception(f"Error submitting answers: {e}")
+        raise HTTPException(500, f"Error submitting answers: {str(e)}")
+
+
 def generate_unique_password(length: int, cursor) -> str:
     chars = string.ascii_lowercase + string.digits
     for _ in range(10000):
@@ -413,12 +495,12 @@ def sendEmails(destinataire: str, code: str):
 def createMatches():
     """Create soulmate matches based on answer similarity within the same level."""
     try:
-        # Fetch all users with their answers
+        # Fetch all users with their answers from the users table directly
         cursor.execute("""
-            SELECT u.id, u.first_name, u.last_name, u.currentClass, a.answers_json
-            FROM users u
-            LEFT JOIN answers a ON u.id = a.user_id
-            WHERE a.answers_json IS NOT NULL
+            SELECT id, first_name, last_name, currentClass,
+                   q3, q4, q5, q6, q7, q8, q9, q10, q11, q12, q13, q14, q15, q16, q17
+            FROM users
+            WHERE q3 IS NOT NULL
         """)
         rows = cursor.fetchall()
         
@@ -428,8 +510,16 @@ def createMatches():
         # Build a list of users with their data
         users = []
         for row in rows:
-            user_id, first_name, last_name, current_class, answers_json = row
-            answers = json.loads(answers_json) if answers_json else {}
+            user_id = row[0]
+            first_name = row[1]
+            last_name = row[2]
+            current_class = row[3]
+            # Create answers dict from q3-q17 columns
+            answers = {
+                'q3': row[4], 'q4': row[5], 'q5': row[6], 'q6': row[7], 'q7': row[8],
+                'q8': row[9], 'q9': row[10], 'q10': row[11], 'q11': row[12], 'q12': row[13],
+                'q13': row[14], 'q14': row[15], 'q15': row[16], 'q16': row[17], 'q17': row[18]
+            }
             # Extract level from currentClass (e.g., "Terminale F" -> "Terminale")
             level = current_class.split()[0] if current_class and current_class.strip() else ""
             users.append({
