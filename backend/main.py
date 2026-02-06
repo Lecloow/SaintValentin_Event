@@ -245,6 +245,12 @@ ANSWER_MAPPINGS = {
         "Eau": 3,
         "Soda": 4,
     },
+    "Au petit-déjeuner c'est plutôt :\xa0": {  # With non-breaking space
+        "Café/Thé": 1,
+        "Jus de fruit": 2,
+        "Eau": 3,
+        "Soda": 4,
+    },
     "A Passy, le midi tu préfères être :": {
         "Dehors": 1,
         "Dans l'atrium": 2,
@@ -281,6 +287,12 @@ ANSWER_MAPPINGS = {
         "Sport de performance (athlétisme, natation...)": 3,
         "Sport de combat": 4,
     },
+    "Tu préfères pratiquer quel sport :\xa0": {  # With non-breaking space
+        "Sport de raquette": 1,
+        "Sport collectif": 2,
+        "Sport de performance (athlétisme, natation...)": 3,
+        "Sport de combat": 4,
+    },
     "Quelle est ta soirée idéale ?": {
         "Soirée cinéma": 1,
         "Soirée entre amis": 2,
@@ -304,12 +316,14 @@ QUESTION_TO_COLUMN = {
     "Tu passes le plus de temps sur :": "q7",
     "A l'école tu préfères :": "q8",
     "Au petit-déjeuner c'est plutôt :": "q9",
+    "Au petit-déjeuner c'est plutôt :\xa0": "q9",  # With non-breaking space
     "A Passy, le midi tu préfères être :": "q10",
     "Avec 1.000.000 d'euros tu ferais plutôt :": "q11",
     "Comme super pouvoir, tu préfèrerais pouvoir :": "q12",
     "Quelle est ta saison préférée :": "q13",
     "Tu préfères lire :": "q14",
     "Tu préfères pratiquer quel sport :": "q15",
+    "Tu préfères pratiquer quel sport :\xa0": "q15",  # With non-breaking space
     "Quelle est ta soirée idéale ?": "q16",
     "Si tu pouvais dîner avec une personne historique ce serait :": "q17",
 }
@@ -331,11 +345,19 @@ def parse_answer(question: str, answer: str) -> int | None:
     # Clean up the answer (remove extra spaces, normalize)
     answer = str(answer).strip()
     
-    # Get the mapping for this question
-    if question not in ANSWER_MAPPINGS:
-        return None
+    # Normalize the question (remove non-breaking spaces, extra spaces)
+    question_normalized = question.replace('\xa0', ' ').replace('  ', ' ').strip()
     
-    mapping = ANSWER_MAPPINGS[question]
+    # Try to find the mapping for this question (try variations)
+    mapping = None
+    for q_key in ANSWER_MAPPINGS.keys():
+        q_key_normalized = q_key.replace('\xa0', ' ').replace('  ', ' ').strip()
+        if q_key_normalized == question_normalized or q_key == question:
+            mapping = ANSWER_MAPPINGS[q_key]
+            break
+    
+    if mapping is None:
+        return None
     
     # Try exact match first
     if answer in mapping:
