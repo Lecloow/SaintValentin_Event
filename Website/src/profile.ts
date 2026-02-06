@@ -62,10 +62,6 @@ export class ProfilePage {
         </div>
       </div>
 
-      <button class="logout-btn" onclick="goToQuestionnaire()" style="margin-bottom: 1rem; background: linear-gradient(135deg, #e91e63 0%, #f06292 100%);">
-        📝 Répondre au questionnaire
-      </button>
-
       <button class="logout-btn" onclick="logout()">Se déconnecter</button>
     `;
   }
@@ -75,11 +71,6 @@ export class ProfilePage {
 (window as any).logout = function() {
   StorageService.clearUser();
   window.location.href = './index.html';
-};
-
-// Fonction globale pour aller au questionnaire
-(window as any).goToQuestionnaire = function() {
-  window.location.href = './questionnaire.html';
 };
 
 // Initialise la page quand le DOM est chargé

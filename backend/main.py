@@ -162,25 +162,6 @@ class AnswerPayload(BaseModel):
     data: dict
 
 
-class SubmitAnswersPayload(BaseModel):
-    user_id: str
-    q3: int
-    q4: int
-    q5: int
-    q6: int
-    q7: int
-    q8: int
-    q9: int
-    q10: int
-    q11: int
-    q12: int
-    q13: int
-    q14: int
-    q15: int
-    q16: int
-    q17: int
-
-
 class Person(BaseModel):
     id: str
     first_name: str
@@ -594,56 +575,6 @@ def check_code(payload: CodePayload):
         }
 
     return {"user_id": user_id}
-
-
-@app.post("/submit-answers")
-def submit_answers(payload: SubmitAnswersPayload):
-    """Submit user answers for questions 3-17."""
-    try:
-        # Verify user exists
-        user_row = cursor.execute(
-            "SELECT id FROM users WHERE id = %s",
-            (payload.user_id,)
-        ).fetchone()
-        
-        if not user_row:
-            raise HTTPException(404, "User not found")
-        
-        # Validate that all answers are between 1 and 4
-        answers = [
-            payload.q3, payload.q4, payload.q5, payload.q6, payload.q7,
-            payload.q8, payload.q9, payload.q10, payload.q11, payload.q12,
-            payload.q13, payload.q14, payload.q15, payload.q16, payload.q17
-        ]
-        
-        for ans in answers:
-            if ans < 1 or ans > 4:
-                raise HTTPException(400, f"Invalid answer value: {ans}. Must be between 1 and 4")
-        
-        # Update user with answers
-        cursor.execute(
-            """UPDATE users 
-               SET q3 = %s, q4 = %s, q5 = %s, q6 = %s, q7 = %s,
-                   q8 = %s, q9 = %s, q10 = %s, q11 = %s, q12 = %s,
-                   q13 = %s, q14 = %s, q15 = %s, q16 = %s, q17 = %s
-               WHERE id = %s""",
-            (
-                payload.q3, payload.q4, payload.q5, payload.q6, payload.q7,
-                payload.q8, payload.q9, payload.q10, payload.q11, payload.q12,
-                payload.q13, payload.q14, payload.q15, payload.q16, payload.q17,
-                payload.user_id
-            )
-        )
-        
-        db.commit()
-        
-        return {"status": "success", "message": "Answers submitted successfully"}
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logging.exception(f"Error submitting answers: {e}")
-        raise HTTPException(500, f"Error submitting answers: {str(e)}")
 
 
 def generate_unique_password(length: int, cursor) -> str:
