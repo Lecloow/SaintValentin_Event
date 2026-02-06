@@ -116,6 +116,14 @@ cursor.execute("""
                )
                """)
 
+cursor.execute("""
+               CREATE TABLE IF NOT EXISTS answers
+               (
+                   user_id TEXT PRIMARY KEY,
+                   answers_json TEXT
+               )
+               """)
+
 db.commit()
 
 
@@ -233,6 +241,7 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
     # Clear existing tables
     cursor.execute("DELETE FROM passwords")
     cursor.execute("DELETE FROM users")
+    cursor.execute("DELETE FROM answers")
     db.commit()
 
     inserted = 0
@@ -270,6 +279,14 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
                     email = EXCLUDED.email,
                     currentClass = EXCLUDED.currentClass""",
                 (str(user_id), first_name, last_name, email, currentClass)
+            )
+
+            # Store answers in JSON format
+            cursor.execute(
+                """INSERT INTO answers (user_id, answers_json)
+                   VALUES (%s, %s) ON CONFLICT (user_id) DO UPDATE
+                   SET answers_json = EXCLUDED.answers_json""",
+                (str(user_id), json.dumps(answers))
             )
 
             # generate and insert a unique password
@@ -394,4 +411,175 @@ def sendEmails(destinataire: str, code: str):
 
 @app.post("/createMatches")
 def createMatches():
-    return {"created": 1}
+    """Create soulmate matches based on answer similarity within the same level."""
+    try:
+        # Fetch all users with their answers
+        cursor.execute("""
+            SELECT u.id, u.first_name, u.last_name, u.currentClass, a.answers_json
+            FROM users u
+            LEFT JOIN answers a ON u.id = a.user_id
+            WHERE a.answers_json IS NOT NULL
+        """)
+        rows = cursor.fetchall()
+        
+        if not rows:
+            raise HTTPException(400, "No users with answers found")
+        
+        # Build a list of users with their data
+        users = []
+        for row in rows:
+            user_id, first_name, last_name, current_class, answers_json = row
+            answers = json.loads(answers_json) if answers_json else {}
+            # Extract level from currentClass (e.g., "Terminale F" -> "Terminale")
+            level = current_class.split()[0] if current_class and current_class.strip() else ""
+            users.append({
+                "id": user_id,
+                "first_name": first_name,
+                "last_name": last_name,
+                "level": level,
+                "answers": answers
+            })
+        
+        # Group users by level
+        users_by_level = {}
+        for user in users:
+            level = user["level"]
+            if level not in users_by_level:
+                users_by_level[level] = []
+            users_by_level[level].append(user)
+        
+        # Clear existing matches
+        cursor.execute("DELETE FROM matches")
+        
+        # Create matches for each level
+        matches_created = 0
+        for level, level_users in users_by_level.items():
+            if not level_users:
+                continue
+                
+            logging.info(f"Creating matches for level {level} with {len(level_users)} users")
+            
+            # Calculate compatibility scores between all pairs
+            n = len(level_users)
+            scores = {}
+            for i in range(n):
+                for j in range(i + 1, n):
+                    user_a = level_users[i]
+                    user_b = level_users[j]
+                    compatibility = score(user_a["answers"], user_b["answers"])
+                    scores[(i, j)] = compatibility
+            
+            # Sort pairs by compatibility score (highest first)
+            sorted_pairs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+            
+            # Create matches ensuring each person gets 2 different matches
+            day1_matches = {}  # user_index -> matched_user_index
+            day2_matches = {}
+            
+            # For day 1: greedy matching
+            used = set()
+            for (i, j), score_val in sorted_pairs:
+                if i not in used and j not in used:
+                    day1_matches[i] = j
+                    day1_matches[j] = i
+                    used.add(i)
+                    used.add(j)
+            
+            # Handle odd number: create a group of 3 for day 1
+            if len(used) < n:
+                unmatched = [idx for idx in range(n) if idx not in used]
+                if len(unmatched) == 1:
+                    # Find an existing pair and add this person to form a trio
+                    # The unmatched person will be matched with one person from a pair,
+                    # creating an indirect trio relationship
+                    if day1_matches:
+                        # Find the best match for the unmatched person among those already matched
+                        best_match_idx = None
+                        best_score = -1
+                        for idx in range(n):
+                            if idx in used:
+                                compatibility = score(level_users[unmatched[0]]["answers"], level_users[idx]["answers"])
+                                if compatibility > best_score:
+                                    best_score = compatibility
+                                    best_match_idx = idx
+                        
+                        if best_match_idx is not None:
+                            day1_matches[unmatched[0]] = best_match_idx
+                            used.add(unmatched[0])
+                            partner = day1_matches.get(best_match_idx, "unknown")
+                            logging.info(f"Formed trio: {unmatched[0]} matched with {best_match_idx} (who is matched with {partner})")
+            
+            # For day 2: match differently
+            used2 = set()
+            for (i, j), score_val in sorted_pairs:
+                # Skip if this would be the same match as day 1
+                if day1_matches.get(i) == j or day1_matches.get(j) == i:
+                    continue
+                if i not in used2 and j not in used2:
+                    day2_matches[i] = j
+                    day2_matches[j] = i
+                    used2.add(i)
+                    used2.add(j)
+            
+            # Handle remaining unmatched for day 2
+            unmatched2 = [idx for idx in range(n) if idx not in used2]
+            if len(unmatched2) == 1:
+                # Add to an existing pair to form a trio
+                if day2_matches:
+                    # Find best match for unmatched person
+                    best_match_idx = None
+                    best_score = -1
+                    for idx in range(n):
+                        if idx in used2:
+                            compatibility = score(level_users[unmatched2[0]]["answers"], level_users[idx]["answers"])
+                            if compatibility > best_score:
+                                best_score = compatibility
+                                best_match_idx = idx
+                    
+                    if best_match_idx is not None:
+                        day2_matches[unmatched2[0]] = best_match_idx
+                        used2.add(unmatched2[0])
+            elif len(unmatched2) == 2:
+                # Match the remaining two
+                day2_matches[unmatched2[0]] = unmatched2[1]
+                day2_matches[unmatched2[1]] = unmatched2[0]
+            elif len(unmatched2) == 3:
+                # Create matches for three people - each gets one match
+                # Form pairs with best compatibility among the three
+                scores_trio = [
+                    (0, 1, score(level_users[unmatched2[0]]["answers"], level_users[unmatched2[1]]["answers"])),
+                    (0, 2, score(level_users[unmatched2[0]]["answers"], level_users[unmatched2[2]]["answers"])),
+                    (1, 2, score(level_users[unmatched2[1]]["answers"], level_users[unmatched2[2]]["answers"]))
+                ]
+                scores_trio.sort(key=lambda x: x[2], reverse=True)
+                # Use the best pair and match third person with one of them
+                best_i, best_j, _ = scores_trio[0]
+                day2_matches[unmatched2[best_i]] = unmatched2[best_j]
+                day2_matches[unmatched2[best_j]] = unmatched2[best_i]
+                # Match third person with one from the pair
+                third = [x for x in [0, 1, 2] if x not in [best_i, best_j]][0]
+                day2_matches[unmatched2[third]] = unmatched2[best_i]
+            
+            # Insert matches into database
+            for idx, user in enumerate(level_users):
+                day1_match_idx = day1_matches.get(idx)
+                day2_match_idx = day2_matches.get(idx)
+                
+                day1_id = level_users[day1_match_idx]["id"] if day1_match_idx is not None else None
+                day2_id = level_users[day2_match_idx]["id"] if day2_match_idx is not None else None
+                
+                cursor.execute(
+                    """INSERT INTO matches (id, day1, day2)
+                       VALUES (%s, %s, %s) ON CONFLICT (id) DO UPDATE
+                       SET day1 = EXCLUDED.day1, day2 = EXCLUDED.day2""",
+                    (user["id"], day1_id, day2_id)
+                )
+                matches_created += 1
+        
+        db.commit()
+        logging.info(f"Created {matches_created} matches")
+        return {"created": matches_created}
+        
+    except Exception as e:
+        logging.exception(f"Error creating matches: {e}")
+        raise HTTPException(500, f"Error creating matches: {str(e)}")
