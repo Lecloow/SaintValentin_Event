@@ -653,6 +653,34 @@ def createMatches():
             
             # Calculate compatibility scores between all pairs
             n = len(level_users)
+            
+            # Special case: exactly 3 users
+            # For 3 users, we form a trio on both days but with different primary matches
+            if n == 3:
+                # For 3 users, arrange them in a circular pattern on each day
+                # Day 1: 0→1, 1→2, 2→0
+                # Day 2: 0→2, 2→1, 1→0 (reversed)
+                # This ensures each person has a different match on each day
+                day1_matches = {0: 1, 1: 2, 2: 0}
+                day2_matches = {0: 2, 2: 1, 1: 0}
+                
+                logging.info(f"Special case - 3 users: circular matching day1=(0→1→2→0), day2=(0→2→1→0)")
+                
+                # Insert matches into database
+                for idx, user in enumerate(level_users):
+                    day1_id = level_users[day1_matches[idx]]["id"]
+                    day2_id = level_users[day2_matches[idx]]["id"]
+                    
+                    cursor.execute(
+                        """INSERT INTO matches (id, day1, day2)
+                           VALUES (%s, %s, %s) ON CONFLICT (id) DO UPDATE
+                           SET day1 = EXCLUDED.day1, day2 = EXCLUDED.day2""",
+                        (user["id"], day1_id, day2_id)
+                    )
+                    matches_created += 1
+                
+                continue  # Skip to next level
+            
             scores = {}
             for i in range(n):
                 for j in range(i + 1, n):
