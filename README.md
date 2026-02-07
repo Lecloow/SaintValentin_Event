@@ -1,6 +1,17 @@
 # SaintValentin
 
-pour run le code:
+Run Frontend (sans le back):
+
+```bash
+cd website && npm install
+```
+
+Puis
+```bash
+npm run dev
+```
+
+pour run le backend:
 
 ### Requirements 
 Pandas
