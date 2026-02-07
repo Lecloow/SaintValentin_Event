@@ -544,9 +544,9 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 8) -> dict:
 
 @app.post("/import-xlsx")
 async def import_xlsx(
+        request: Request,
         file: UploadFile,
         passwd_len: int = 8,
-        request: Request,
         token: str = Form(...)
 ):
     expected_token = os.getenv("ADMIN_TOKEN")
@@ -610,8 +610,10 @@ def generate_unique_password(length: int, cursor) -> str:
 
 
 @app.post("/createMatches")
-def createMatches(request: Request,
-        token: str = Form(...)):
+def createMatches(
+        request: Request,
+        token: str = Form(...)
+):
     """Create matches based on answer similarity within the same level."""
     expected_token = os.getenv("ADMIN_TOKEN")
     client_ip = request.client.host
