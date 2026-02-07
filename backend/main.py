@@ -667,6 +667,7 @@ def createMatches():
             # Create matches ensuring each person gets 2 different matches
             day1_matches = {}  # user_index -> matched_user_index
             day2_matches = {}
+            day1_trio_members = set()  # Track who is in a trio on day 1
             
             # For day 1: greedy matching
             used = set()
@@ -699,38 +700,91 @@ def createMatches():
                             day1_matches[unmatched[0]] = best_match_idx
                             used.add(unmatched[0])
                             partner = day1_matches.get(best_match_idx, "unknown")
-                            logging.info(f"Formed trio: {unmatched[0]} matched with {best_match_idx} (who is matched with {partner})")
+                            # Mark all three people as being in a trio
+                            day1_trio_members.add(unmatched[0])
+                            day1_trio_members.add(best_match_idx)
+                            day1_trio_members.add(partner)
+                            logging.info(f"Formed trio on day 1: {unmatched[0]}, {best_match_idx}, {partner}")
             
-            # For day 2: match differently
+            # For day 2: match differently, being strategic about who might end up in trios
+            # If we had a trio on day 1 and will likely have one on day 2, try to ensure
+            # different people are in the day 2 trio
             used2 = set()
-            for (i, j), score_val in sorted_pairs:
-                # Skip if this would be the same match as day 1
-                if day1_matches.get(i) == j or day1_matches.get(j) == i:
-                    continue
-                if i not in used2 and j not in used2:
-                    day2_matches[i] = j
-                    day2_matches[j] = i
-                    used2.add(i)
-                    used2.add(j)
+            
+            # If there was a day 1 trio and we expect a day 2 trio (odd number of users)
+            # prioritize matching day 1 trio members first to avoid them being unmatched again
+            if day1_trio_members and n % 2 == 1:
+                # Sort pairs prioritizing matches involving day 1 trio members
+                pairs_with_trio = []
+                pairs_without_trio = []
+                for (i, j), score_val in sorted_pairs:
+                    if day1_matches.get(i) == j or day1_matches.get(j) == i:
+                        continue
+                    if i in day1_trio_members or j in day1_trio_members:
+                        pairs_with_trio.append(((i, j), score_val))
+                    else:
+                        pairs_without_trio.append(((i, j), score_val))
+                
+                # Process trio members first
+                for (i, j), score_val in pairs_with_trio:
+                    if i not in used2 and j not in used2:
+                        day2_matches[i] = j
+                        day2_matches[j] = i
+                        used2.add(i)
+                        used2.add(j)
+                
+                # Then process others
+                for (i, j), score_val in pairs_without_trio:
+                    if i not in used2 and j not in used2:
+                        day2_matches[i] = j
+                        day2_matches[j] = i
+                        used2.add(i)
+                        used2.add(j)
+            else:
+                # Normal matching for day 2
+                for (i, j), score_val in sorted_pairs:
+                    if day1_matches.get(i) == j or day1_matches.get(j) == i:
+                        continue
+                    if i not in used2 and j not in used2:
+                        day2_matches[i] = j
+                        day2_matches[j] = i
+                        used2.add(i)
+                        used2.add(j)
             
             # Handle remaining unmatched for day 2
             unmatched2 = [idx for idx in range(n) if idx not in used2]
             if len(unmatched2) == 1:
                 # Add to an existing pair to form a trio
+                # IMPORTANT: Prefer matching with someone who was NOT in a trio on day 1
                 if day2_matches:
-                    # Find best match for unmatched person
+                    # Find best match for unmatched person, avoiding day 1 trio members if possible
                     best_match_idx = None
                     best_score = -1
+                    best_non_trio_match_idx = None
+                    best_non_trio_score = -1
+                    
                     for idx in range(n):
                         if idx in used2:
                             compatibility = score(level_users[unmatched2[0]]["answers"], level_users[idx]["answers"])
                             if compatibility > best_score:
                                 best_score = compatibility
                                 best_match_idx = idx
+                            # Track best match among non-trio members from day 1
+                            if idx not in day1_trio_members and compatibility > best_non_trio_score:
+                                best_non_trio_score = compatibility
+                                best_non_trio_match_idx = idx
                     
-                    if best_match_idx is not None:
+                    # If unmatched person was in day 1 trio, prioritize matching with non-trio member
+                    if unmatched2[0] in day1_trio_members and best_non_trio_match_idx is not None:
+                        day2_matches[unmatched2[0]] = best_non_trio_match_idx
+                        used2.add(unmatched2[0])
+                        partner = day2_matches.get(best_non_trio_match_idx, "unknown")
+                        logging.info(f"Formed trio on day 2: {unmatched2[0]} (was in day1 trio) matched with {best_non_trio_match_idx} (was NOT in day1 trio), who is matched with {partner}")
+                    elif best_match_idx is not None:
                         day2_matches[unmatched2[0]] = best_match_idx
                         used2.add(unmatched2[0])
+                        partner = day2_matches.get(best_match_idx, "unknown")
+                        logging.info(f"Formed trio on day 2: {unmatched2[0]} matched with {best_match_idx}, who is matched with {partner}")
             elif len(unmatched2) == 2:
                 # Match the remaining two
                 day2_matches[unmatched2[0]] = unmatched2[1]
