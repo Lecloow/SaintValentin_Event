@@ -40,9 +40,9 @@ def send_email_blocking(destinataire: str, code: str) -> tuple:
     message = MIMEMultipart()
     message["From"] = expediteur
     message["To"] = destinataire
-    message["Subject"] = "🎀 Ton code d'accès - Saint Valentin Event"
+    message["Subject"] = "Ton code pour acceder a l'évènement de la Saint Valentin"
 
-    corps = f"Voici ton code d'accès : {code}\n\nUtilise ce code pour t'identifier sur la plateforme."
+    corps = f"Voici ton code d'accès : {code}\n\nConnecte ici : https://url.com"
     message.attach(MIMEText(corps, "plain"))
 
     try:

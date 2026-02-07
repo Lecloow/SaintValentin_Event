@@ -408,7 +408,7 @@ def parse_name(full_name: str) -> dict:
     return {"first_name": first_name, "last_name": last_name}
 
 
-def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
+def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 8) -> dict:
     """Import a DataFrame (read from XLSX) directly into the PostgreSQL DB.
 
     - df_raw: raw DataFrame loaded from the original XLSX (keeps the "Nom" column if present)
@@ -544,9 +544,9 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
 
 @app.post("/import-xlsx")
 async def import_xlsx(
-        request: Request,
         file: UploadFile,
-        passwd_len: int = 6,
+        passwd_len: int = 8,
+        request: Request,
         token: str = Form(...)
 ):
     expected_token = os.getenv("ADMIN_TOKEN")
@@ -610,8 +610,19 @@ def generate_unique_password(length: int, cursor) -> str:
 
 
 @app.post("/createMatches")
-def createMatches():
+def createMatches(request: Request,
+        token: str = Form(...)):
     """Create matches based on answer similarity within the same level."""
+    expected_token = os.getenv("ADMIN_TOKEN")
+    client_ip = request.client.host
+
+    if not expected_token:
+        raise HTTPException(500, "Token expected")
+
+        # Comparaison sécurisée contre timing attacks
+    if not secrets.compare_digest(token, expected_token):
+        logging.warning(f"Tentative de calcul des matchs avec mauvais token depuis {client_ip}")
+        raise HTTPException(401, "Non autorisé")
     try:
         # Fetch all users with their answers from the users table directly
         cursor.execute("""
