@@ -62,27 +62,26 @@ export class LoginPage {
    * Soumet la requête de login
    */
   private async submitLogin(password: string): Promise<void> {
-    try {
-      this.setLoading(true);
-      this.clearError();
+  try {
+    this.setLoading(true);
+    this.clearError();
 
-      const payload: LoginPayload = { password };
-      const user = await ApiService.login(payload);
+    const user = await ApiService.login(password);
 
-      // Sauvegarde l'utilisateur
-      StorageService.setUser(user);
+    // Save user
+    StorageService.setUser(user);
 
-      this.showSuccess('Connexion réussie! Redirection...');
+    this.showSuccess('Connexion réussie! Redirection...');
 
-      window.location.href = './profile.html';
-    } catch (error: any) {
-      const message =
-        error.message || 'Erreur lors de la connexion';
-      this.showError(message);
-    } finally {
-      this.setLoading(false);
-    }
+    window.location.href = './profile.html';
+  } catch (error: any) {
+    const message =
+      error.message || 'Erreur lors de la connexion';
+    this.showError(message);
+  } finally {
+    this.setLoading(false);
   }
+}
 
   /**
    * Affiche un message d'erreur

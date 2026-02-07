@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Depends, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -428,13 +428,13 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
 
     for idx, row in df.iterrows():
         try:
-            raw_name = df_raw.at[idx, "Nom"] if "Nom" in df_raw.columns else None
+            raw_name = df_raw.at[idx, "Name"] if "Name" in df_raw.columns else None
             name = parse_name(raw_name)
 
             user_id = int(row["ID"]) if pd.notna(row.get("ID")) else None
-            first_name = name.get("first_name") or row.get("Prenom") or ""
-            last_name = name.get("last_name") or row.get("Nom") or ""
-            email = row.get("Adresse de messagerie") or row.get("Email") or row.get("email") or ""
+            first_name = name.get("first_name")
+            last_name = name.get("last_name")
+            email = row.get("Email")
 
             # Build answers dict from remaining columns
             skip_cols = ["ID", "Adresse de messagerie"]
@@ -525,29 +525,40 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
     db.commit()
     return {"imported": inserted, "password_length": passwd_len}
 
-
-# Refactor endpoint to use the reusable functions
 @app.post("/import-xlsx")
-async def import_xlsx(file: UploadFile, passwd_len: int = 6):
-    if file is None:
-        raise HTTPException(status_code=400, detail="Provide either an uploaded file or a file_path")
+async def import_xlsx(
+        request: Request,
+        file: UploadFile,
+        passwd_len: int = 6,
+        token: str = Form(...)
+):
+    expected_token = os.getenv("ADMIN_TOKEN")
+    client_ip = request.client.host
 
-    # Read DataFrame
+    if not expected_token:
+        raise HTTPException(500, "Configuration serveur manquante")
+
+    # Comparaison sécurisée contre timing attacks
+    if not secrets.compare_digest(token, expected_token):
+        logging.warning(f"Tentative d'import avec mauvais token depuis {client_ip}")
+        raise HTTPException(401, "Non autorisé")
+
+    # Import autorisé
     try:
         contents = await file.read()
         df_raw = pd.read_excel(BytesIO(contents), dtype=object)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read XLSX: {e}")
-
+        raise HTTPException(400, f"Erreur lecture XLSX: {e}")
+    logging.info(f"Import autorisé depuis {client_ip}")
     result = import_xlsx_df(df_raw, passwd_len)
     return result
 
 
 @app.post("/login")
-def check_code(payload: CodePayload):
+def check_code(password: str = Form(...)):
     row = cursor.execute(
         "SELECT * FROM passwords WHERE password = %s",
-        (payload.password,)
+        (password,)
     ).fetchone()
 
     if not row:
@@ -569,7 +580,6 @@ def check_code(payload: CodePayload):
         }
 
     return {"user_id": user_id}
-
 
 def generate_unique_password(length: int, cursor) -> str:
     chars = string.ascii_lowercase + string.digits

@@ -1,21 +1,16 @@
-import { LoginPayload, LoginResponse, ApiError } from './types';
+import { LoginResponse, ApiError } from './types';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
-/**
- * Service pour les appels API
- */
+
 export class ApiService {
-  /**
-   * Envoie une requête de login au backend
-   */
-  static async login(payload: LoginPayload): Promise<LoginResponse> {
+  static async login(password: string): Promise<LoginResponse> {
     try {
+      const formData = new FormData();
+      formData.append('password', password);
+
       const response = await fetch(`${API_BASE_URL}/login`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
+        body: formData,  // Pas de Content-Type, FormData le gère automatiquement
       });
 
       if (!response.ok) {
