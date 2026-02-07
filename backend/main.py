@@ -97,21 +97,36 @@ cursor.execute("""
                    TEXT,
                    currentClass
                    TEXT,
-                   q3 INTEGER,
-                   q4 INTEGER,
-                   q5 INTEGER,
-                   q6 INTEGER,
-                   q7 INTEGER,
-                   q8 INTEGER,
-                   q9 INTEGER,
-                   q10 INTEGER,
-                   q11 INTEGER,
-                   q12 INTEGER,
-                   q13 INTEGER,
-                   q14 INTEGER,
-                   q15 INTEGER,
-                   q16 INTEGER,
-                   q17 INTEGER
+                   q3
+                   INTEGER,
+                   q4
+                   INTEGER,
+                   q5
+                   INTEGER,
+                   q6
+                   INTEGER,
+                   q7
+                   INTEGER,
+                   q8
+                   INTEGER,
+                   q9
+                   INTEGER,
+                   q10
+                   INTEGER,
+                   q11
+                   INTEGER,
+                   q12
+                   INTEGER,
+                   q13
+                   INTEGER,
+                   q14
+                   INTEGER,
+                   q15
+                   INTEGER,
+                   q16
+                   INTEGER,
+                   q17
+                   INTEGER
                )
                """)
 
@@ -312,23 +327,23 @@ QUESTION_TO_COLUMN = {
 
 def parse_answer(question: str, answer: str) -> int | None:
     """Parse a text answer and convert it to integer (1-4).
-    
+
     Args:
         question: The question text
         answer: The answer text
-        
+
     Returns:
         Integer value (1-4) or None if answer cannot be mapped
     """
     if not answer or pd.isna(answer):
         return None
-    
+
     # Clean up the answer (remove extra spaces, normalize)
     answer = str(answer).strip()
-    
+
     # Normalize the question (remove non-breaking spaces, extra spaces)
     question_normalized = question.replace('\xa0', ' ').replace('  ', ' ').strip()
-    
+
     # Try to find the mapping for this question (try variations)
     mapping = None
     for q_key in ANSWER_MAPPINGS.keys():
@@ -336,24 +351,24 @@ def parse_answer(question: str, answer: str) -> int | None:
         if q_key_normalized == question_normalized or q_key == question:
             mapping = ANSWER_MAPPINGS[q_key]
             break
-    
+
     if mapping is None:
         return None
-    
+
     # Try exact match first
     if answer in mapping:
         return mapping[answer]
-    
+
     # Try case-insensitive match
     for key, value in mapping.items():
         if key.lower() == answer.lower():
             return value
-    
+
     # Try partial match (for typos or extra spaces)
     for key, value in mapping.items():
         if key.lower() in answer.lower() or answer.lower() in key.lower():
             return value
-    
+
     logging.warning(f"Could not map answer '{answer}' for question '{question}'")
     return None
 
@@ -461,14 +476,15 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
                         if key and question_text.replace(" ", "").lower() == key.replace(" ", "").lower():
                             answer_text = answers[key]
                             break
-                
+
                 # Convert text answer to integer
                 if answer_text:
                     parsed_value = parse_answer(question_text, answer_text)
                     if parsed_value is not None:
                         parsed_answers[column_name] = parsed_value
                     else:
-                        logging.warning(f"Could not parse answer for user {user_id}, question: {question_text}, answer: {answer_text}")
+                        logging.warning(
+                            f"Could not parse answer for user {user_id}, question: {question_text}, answer: {answer_text}")
 
             # Insert or update user with basic info
             cursor.execute(
@@ -490,7 +506,7 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
                 for col, val in parsed_answers.items():
                     set_clauses.append(f"{col} = %s")
                     values.append(val)
-                
+
                 if set_clauses:
                     values.append(str(user_id))
                     update_query = f"UPDATE users SET {', '.join(set_clauses)} WHERE id = %s"
@@ -524,6 +540,7 @@ def import_xlsx_df(df_raw: pd.DataFrame, passwd_len: int = 6) -> dict:
 
     db.commit()
     return {"imported": inserted, "password_length": passwd_len}
+
 
 @app.post("/import-xlsx")
 async def import_xlsx(
@@ -581,6 +598,7 @@ def check_code(password: str = Form(...)):
 
     return {"user_id": user_id}
 
+
 def generate_unique_password(length: int, cursor) -> str:
     chars = string.ascii_lowercase + string.digits
     for _ in range(10000):
@@ -591,24 +609,39 @@ def generate_unique_password(length: int, cursor) -> str:
     raise RuntimeError("Failed to generate a unique password after max attempts")
 
 
-
-
 @app.post("/createMatches")
 def createMatches():
     """Create matches based on answer similarity within the same level."""
     try:
         # Fetch all users with their answers from the users table directly
         cursor.execute("""
-            SELECT id, first_name, last_name, currentClass,
-                   q3, q4, q5, q6, q7, q8, q9, q10, q11, q12, q13, q14, q15, q16, q17
-            FROM users
-            WHERE q3 IS NOT NULL
-        """)
+                       SELECT id,
+                              first_name,
+                              last_name,
+                              currentClass,
+                              q3,
+                              q4,
+                              q5,
+                              q6,
+                              q7,
+                              q8,
+                              q9,
+                              q10,
+                              q11,
+                              q12,
+                              q13,
+                              q14,
+                              q15,
+                              q16,
+                              q17
+                       FROM users
+                       WHERE q3 IS NOT NULL
+                       """)
         rows = cursor.fetchall()
-        
+
         if not rows:
             raise HTTPException(400, "No users with answers found")
-        
+
         # Build a list of users with their data
         users = []
         for row in rows:
@@ -631,7 +664,7 @@ def createMatches():
                 "level": level,
                 "answers": answers
             })
-        
+
         # Group users by level
         users_by_level = {}
         for user in users:
@@ -639,20 +672,49 @@ def createMatches():
             if level not in users_by_level:
                 users_by_level[level] = []
             users_by_level[level].append(user)
-        
+
         # Clear existing matches
         cursor.execute("DELETE FROM matches")
-        
+
         # Create matches for each level
         matches_created = 0
         for level, level_users in users_by_level.items():
             if not level_users:
                 continue
-                
+
             logging.info(f"Creating matches for level {level} with {len(level_users)} users")
-            
+
             # Calculate compatibility scores between all pairs
             n = len(level_users)
+
+            # Special case: exactly 3 users
+            # For 3 users, we form a trio on both days but with different primary matches
+            if n == 3:
+                # For 3 users, arrange them in a circular pattern on each day
+                # Day 1: 0→1, 1→2, 2→0
+                # Day 2: 0→2, 2→1, 1→0 (reversed)
+                # This ensures each person has a different match on each day
+                day1_matches = {0: 1, 1: 2, 2: 0}
+                day2_matches = {0: 2, 2: 1, 1: 0}
+
+                logging.info(f"Special case - 3 users: circular matching day1=(0→1→2→0), day2=(0→2→1→0)")
+
+                # Insert matches into database
+                for idx, user in enumerate(level_users):
+                    day1_id = level_users[day1_matches[idx]]["id"]
+                    day2_id = level_users[day2_matches[idx]]["id"]
+
+                    cursor.execute(
+                        """INSERT INTO matches (id, day1, day2)
+                           VALUES (%s, %s, %s) ON CONFLICT (id) DO
+                           UPDATE
+                           SET day1 = EXCLUDED.day1, day2 = EXCLUDED.day2""",
+                        (user["id"], day1_id, day2_id)
+                    )
+                    matches_created += 1
+
+                continue  # Skip to next level
+
             scores = {}
             for i in range(n):
                 for j in range(i + 1, n):
@@ -660,14 +722,15 @@ def createMatches():
                     user_b = level_users[j]
                     compatibility = score(user_a["answers"], user_b["answers"])
                     scores[(i, j)] = compatibility
-            
+
             # Sort pairs by compatibility score (highest first)
             sorted_pairs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-            
+
             # Create matches ensuring each person gets 2 different matches
             day1_matches = {}  # user_index -> matched_user_index
             day2_matches = {}
-            
+            day1_trio_members = set()  # Track who is in a trio on day 1
+
             # For day 1: greedy matching
             used = set()
             for (i, j), score_val in sorted_pairs:
@@ -676,7 +739,7 @@ def createMatches():
                     day1_matches[j] = i
                     used.add(i)
                     used.add(j)
-            
+
             # Handle odd number: create a group of 3 for day 1
             if len(used) < n:
                 unmatched = [idx for idx in range(n) if idx not in used]
@@ -694,43 +757,98 @@ def createMatches():
                                 if compatibility > best_score:
                                     best_score = compatibility
                                     best_match_idx = idx
-                        
+
                         if best_match_idx is not None:
                             day1_matches[unmatched[0]] = best_match_idx
                             used.add(unmatched[0])
                             partner = day1_matches.get(best_match_idx, "unknown")
-                            logging.info(f"Formed trio: {unmatched[0]} matched with {best_match_idx} (who is matched with {partner})")
-            
-            # For day 2: match differently
+                            # Mark all three people as being in a trio
+                            day1_trio_members.add(unmatched[0])
+                            day1_trio_members.add(best_match_idx)
+                            day1_trio_members.add(partner)
+                            logging.info(f"Formed trio on day 1: {unmatched[0]}, {best_match_idx}, {partner}")
+
+            # For day 2: match differently, being strategic about who might end up in trios
+            # If we had a trio on day 1 and will likely have one on day 2, try to ensure
+            # different people are in the day 2 trio
             used2 = set()
-            for (i, j), score_val in sorted_pairs:
-                # Skip if this would be the same match as day 1
-                if day1_matches.get(i) == j or day1_matches.get(j) == i:
-                    continue
-                if i not in used2 and j not in used2:
-                    day2_matches[i] = j
-                    day2_matches[j] = i
-                    used2.add(i)
-                    used2.add(j)
-            
+
+            # If there was a day 1 trio and we expect a day 2 trio (odd number of users)
+            # prioritize matching day 1 trio members first to avoid them being unmatched again
+            if day1_trio_members and n % 2 == 1:
+                # Sort pairs prioritizing matches involving day 1 trio members
+                pairs_with_trio = []
+                pairs_without_trio = []
+                for (i, j), score_val in sorted_pairs:
+                    if day1_matches.get(i) == j or day1_matches.get(j) == i:
+                        continue
+                    if i in day1_trio_members or j in day1_trio_members:
+                        pairs_with_trio.append(((i, j), score_val))
+                    else:
+                        pairs_without_trio.append(((i, j), score_val))
+
+                # Process trio members first
+                for (i, j), score_val in pairs_with_trio:
+                    if i not in used2 and j not in used2:
+                        day2_matches[i] = j
+                        day2_matches[j] = i
+                        used2.add(i)
+                        used2.add(j)
+
+                # Then process others
+                for (i, j), score_val in pairs_without_trio:
+                    if i not in used2 and j not in used2:
+                        day2_matches[i] = j
+                        day2_matches[j] = i
+                        used2.add(i)
+                        used2.add(j)
+            else:
+                # Normal matching for day 2
+                for (i, j), score_val in sorted_pairs:
+                    if day1_matches.get(i) == j or day1_matches.get(j) == i:
+                        continue
+                    if i not in used2 and j not in used2:
+                        day2_matches[i] = j
+                        day2_matches[j] = i
+                        used2.add(i)
+                        used2.add(j)
+
             # Handle remaining unmatched for day 2
             unmatched2 = [idx for idx in range(n) if idx not in used2]
             if len(unmatched2) == 1:
                 # Add to an existing pair to form a trio
+                # IMPORTANT: Prefer matching with someone who was NOT in a trio on day 1
                 if day2_matches:
-                    # Find best match for unmatched person
+                    # Find best match for unmatched person, avoiding day 1 trio members if possible
                     best_match_idx = None
                     best_score = -1
+                    best_non_trio_match_idx = None
+                    best_non_trio_score = -1
+
                     for idx in range(n):
                         if idx in used2:
-                            compatibility = score(level_users[unmatched2[0]]["answers"], level_users[idx]["answers"])
-                            if compatibility > best_score:
-                                best_score = compatibility
+                            score_val = score(level_users[unmatched2[0]]["answers"], level_users[idx]["answers"])
+                            if score_val > best_score:
+                                best_score = score_val
                                 best_match_idx = idx
-                    
-                    if best_match_idx is not None:
+                            # Track best match among non-trio members from day 1
+                            if idx not in day1_trio_members and score_val > best_non_trio_score:
+                                best_non_trio_score = score_val
+                                best_non_trio_match_idx = idx
+
+                    # If unmatched person was in day 1 trio, prioritize matching with non-trio member
+                    if unmatched2[0] in day1_trio_members and best_non_trio_match_idx is not None:
+                        day2_matches[unmatched2[0]] = best_non_trio_match_idx
+                        used2.add(unmatched2[0])
+                        partner = day2_matches.get(best_non_trio_match_idx, "unknown")
+                        logging.info(
+                            f"Formed trio on day 2: {unmatched2[0]} (was in day1 trio) matched with {best_non_trio_match_idx} (was NOT in day1 trio), who is matched with {partner}")
+                    elif best_match_idx is not None:
                         day2_matches[unmatched2[0]] = best_match_idx
                         used2.add(unmatched2[0])
+                        partner = day2_matches.get(best_match_idx, "unknown")
+                        logging.info(
+                            f"Formed trio on day 2: {unmatched2[0]} matched with {best_match_idx}, who is matched with {partner}")
             elif len(unmatched2) == 2:
                 # Match the remaining two
                 day2_matches[unmatched2[0]] = unmatched2[1]
@@ -751,27 +869,28 @@ def createMatches():
                 # Match third person with one from the pair
                 third = [x for x in [0, 1, 2] if x not in [best_i, best_j]][0]
                 day2_matches[unmatched2[third]] = unmatched2[best_i]
-            
+
             # Insert matches into database
             for idx, user in enumerate(level_users):
                 day1_match_idx = day1_matches.get(idx)
                 day2_match_idx = day2_matches.get(idx)
-                
+
                 day1_id = level_users[day1_match_idx]["id"] if day1_match_idx is not None else None
                 day2_id = level_users[day2_match_idx]["id"] if day2_match_idx is not None else None
-                
+
                 cursor.execute(
                     """INSERT INTO matches (id, day1, day2)
-                       VALUES (%s, %s, %s) ON CONFLICT (id) DO UPDATE
+                       VALUES (%s, %s, %s) ON CONFLICT (id) DO
+                       UPDATE
                        SET day1 = EXCLUDED.day1, day2 = EXCLUDED.day2""",
                     (user["id"], day1_id, day2_id)
                 )
                 matches_created += 1
-        
+
         db.commit()
         logging.info(f"Created {matches_created} matches")
         return {"created": matches_created}
-        
+
     except Exception as e:
         logging.exception(f"Error creating matches: {e}")
         raise HTTPException(500, f"Error creating matches: {str(e)}")
