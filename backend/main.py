@@ -793,13 +793,13 @@ def createMatches():
                     
                     for idx in range(n):
                         if idx in used2:
-                            compatibility = score(level_users[unmatched2[0]]["answers"], level_users[idx]["answers"])
-                            if compatibility > best_score:
-                                best_score = compatibility
+                            score_val = score(level_users[unmatched2[0]]["answers"], level_users[idx]["answers"])
+                            if score_val > best_score:
+                                best_score = score_val
                                 best_match_idx = idx
                             # Track best match among non-trio members from day 1
-                            if idx not in day1_trio_members and compatibility > best_non_trio_score:
-                                best_non_trio_score = compatibility
+                            if idx not in day1_trio_members and score_val > best_non_trio_score:
+                                best_non_trio_score = score_val
                                 best_non_trio_match_idx = idx
                     
                     # If unmatched person was in day 1 trio, prioritize matching with non-trio member

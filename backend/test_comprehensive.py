@@ -49,8 +49,8 @@ def run_matching_algorithm(users_by_level):
             for j in range(i + 1, n):
                 user_a = level_users[i]
                 user_b = level_users[j]
-                compatibility = score(user_a["answers"], user_b["answers"])
-                scores[(i, j)] = compatibility
+                score_val = score(user_a["answers"], user_b["answers"])
+                scores[(i, j)] = score_val
         
         # Sort pairs by compatibility score (highest first)
         sorted_pairs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
@@ -78,9 +78,9 @@ def run_matching_algorithm(users_by_level):
                     best_score = -1
                     for idx in range(n):
                         if idx in used:
-                            compatibility = score(level_users[unmatched[0]]["answers"], level_users[idx]["answers"])
-                            if compatibility > best_score:
-                                best_score = compatibility
+                            score_val = score(level_users[unmatched[0]]["answers"], level_users[idx]["answers"])
+                            if score_val > best_score:
+                                best_score = score_val
                                 best_match_idx = idx
                     
                     if best_match_idx is not None:
@@ -142,12 +142,12 @@ def run_matching_algorithm(users_by_level):
                 
                 for idx in range(n):
                     if idx in used2:
-                        compatibility = score(level_users[unmatched2[0]]["answers"], level_users[idx]["answers"])
-                        if compatibility > best_score:
-                            best_score = compatibility
+                        score_val = score(level_users[unmatched2[0]]["answers"], level_users[idx]["answers"])
+                        if score_val > best_score:
+                            best_score = score_val
                             best_match_idx = idx
-                        if idx not in day1_trio_members and compatibility > best_non_trio_score:
-                            best_non_trio_score = compatibility
+                        if idx not in day1_trio_members and score_val > best_non_trio_score:
+                            best_non_trio_score = score_val
                             best_non_trio_match_idx = idx
                 
                 if unmatched2[0] in day1_trio_members and best_non_trio_match_idx is not None:
