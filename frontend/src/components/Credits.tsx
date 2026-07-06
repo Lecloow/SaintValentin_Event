@@ -23,7 +23,7 @@ export default function Credits() {
       </div>
       <div className="pt-2">
         {isDemo && (
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-row gap-1">
             <CreditsButton
               text="Access to admin panel"
               onClick={() => window.location.href = "/Affinities-documentation.html"}
