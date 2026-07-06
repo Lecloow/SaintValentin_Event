@@ -5,7 +5,7 @@ import { Api } from "@/api";
 import logoImg from "@/assets/logo.png";
 import branchImg from "@/assets/branch.png";
 import { useEffect } from "react";
-import { Button, Credits, Tag, TextInput, Popup } from "@/components";
+import { Button, Credits, Tag, TextInput, Popup, CreditsButton } from "@/components";
 import { HeartIcon } from '@heroicons/react/24/solid';
 import { isDemo } from "@/api";
 
@@ -116,6 +116,18 @@ export default function LoginPage() {
               >
                 {isDemo ? t("demo.loginButton") : t("login.button")} <HeartIcon className="w-[1.4rem] h-[1.4rem]"/>
               </Button>
+              {isDemo && (
+                <div className="flex flex-col gap-1">
+                  <CreditsButton
+                    text="Access to admin panel"
+                    onClick={() => window.location.href = "/Affinities-documentation.html"}
+                  />
+                  <CreditsButton
+                    text="Access to ml"
+                    onClick={() => navigate("/ml")}
+                  />
+                </div>
+              )}
             </div>
           </div>
         </div>

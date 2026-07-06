@@ -22,12 +22,18 @@ export default function Credits() {
           </CreditsButton>
       </div>
       <div className="pt-2">
-        {isDemo &&
-          <div className="flex fle-col gap-1">
-            <CreditsButton text="Access to admin panel" onClick={() => navigate("/Affinities-documentation.html")} />
-            <CreditsButton text="Access to ml" onClick={() => navigate("/ml")} />
+        {isDemo && (
+          <div className="flex flex-col gap-1">
+            <CreditsButton
+              text="Access to admin panel"
+              onClick={() => window.location.href = "/Affinities-documentation.html"}
+            />
+            <CreditsButton
+              text="Access to ml"
+              onClick={() => navigate("/ml")}
+            />
           </div>
-        }
+        )}
       </div>
     </footer>
   );
