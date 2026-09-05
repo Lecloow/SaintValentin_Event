@@ -19,6 +19,12 @@ var eventStartDate, _ = time.Parse("2006-01-02", "2026-05-28") // 2006-01-02 is 
 // Be sure to keep it in UTC, because the server will probably be in UTC, just check it before (It's not cool to discover it the day of the event, I swear)
 var MatchRevealTime = time.Date(2000, 1, 1, 14, 0, 0, 0, time.UTC)
 
+// If true a girl will be match with a boy
+// else it will be with th best candidate and ignore the isMatchByGender
+// You need to know that the gender is estimated by a ML using only the first name, it may be wrong
+const IsMatchByGender = true
+const genderMatchBonus = 0.15
+
 func HintRevealTime(hintIndex int) time.Time {
 	switch hintIndex {
 	case 1:
@@ -47,13 +53,13 @@ func CalculatePoints(hintNumber int) int {
 
 func getHintType(hintNumber int) []string {
 	switch hintNumber {
-		case 1:
-			return []string{"letterInFirstName", "letterInLastName", "numberOfVowel"}[:]
-		case 2:
-			return []string{"firstLetterOfFirstName", "firstLetterOfLastName"}[:]
-		case 3:
-			return []string{"class", "firstName"}[:]
-		default:
-			return nil
+	case 1:
+		return []string{"letterInFirstName", "letterInLastName", "numberOfVowel"}[:]
+	case 2:
+		return []string{"firstLetterOfFirstName", "firstLetterOfLastName"}[:]
+	case 3:
+		return []string{"class", "firstName"}[:]
+	default:
+		return nil
 	}
 }

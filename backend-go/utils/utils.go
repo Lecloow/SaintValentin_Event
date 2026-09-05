@@ -110,21 +110,20 @@ func GeneratePassword(length int) (string, error) {
 }
 
 func GenerateString(charsets string, length int) (string, error) {
-    result := make([]byte, length)
-    charsetLen := big.NewInt(int64(len(charsets)))
-    
-    for i := range length {
-        randomIndex, err := rand.Int(rand.Reader, charsetLen)
-        if err != nil {
-            return "", err
-        }
-    
-        result[i] = charsets[randomIndex.Int64()]
-    }
+	result := make([]byte, length)
+	charsetLen := big.NewInt(int64(len(charsets)))
 
-    return string(result), nil
+	for i := range length {
+		randomIndex, err := rand.Int(rand.Reader, charsetLen)
+		if err != nil {
+			return "", err
+		}
+
+		result[i] = charsets[randomIndex.Int64()]
+	}
+
+	return string(result), nil
 }
-
 
 func MatchScore(a, b []int16) float64 {
 	if len(a) != len(b) {
@@ -154,4 +153,12 @@ func HashPassword(password string) (string, error) {
 
 func GetGender(name string) string {
 	return ml.GetGender(name)
+}
+
+func IsGenderCompatible(genderA, genderB string) float64 {
+	if (genderA == "Female" && genderB == "Male") || // Unisex is neutral.
+		(genderA == "Male" && genderB == "Female") {
+		return genderMatchBonus
+	}
+	return 0
 }
