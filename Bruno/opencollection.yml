@@ -1,0 +1,19 @@
+opencollection: 1.0.0
+
+info:
+  name: Affinities
+
+request:
+  auth:
+    type: bearer
+    token: "{{BearerToken}}"
+bundled: false
+extensions:
+  bruno:
+    ignore:
+      - node_modules
+      - .git
+    presets:
+      request:
+        type: http
+        url: "{{baseUrl}}"

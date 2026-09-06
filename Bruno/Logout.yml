@@ -1,0 +1,15 @@
+info:
+  name: Logout
+  type: http
+  seq: 13
+
+http:
+  method: POST
+  url: "{{baseUrl}}/logout"
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true

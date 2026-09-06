@@ -1,0 +1,29 @@
+info:
+  name: Add user
+  type: http
+  seq: 3
+
+http:
+  method: POST
+  url: "{{baseUrl}}/admin/users"
+  headers:
+    - name: Content-Type
+      value: application/json
+  body:
+    type: json
+    data: |-
+      {
+        "firstName": "Test",
+        "lastName": "ThisIsATest",
+        "email": "test@test.com",
+        "class": "Terminale Z",
+        "password": "02"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true

@@ -1,0 +1,23 @@
+info:
+  name: CreateMatches
+  type: http
+  seq: 18
+
+http:
+  method: POST
+  url: "{{baseUrl}}/admin/createMatches/"
+  body:
+    type: json
+    data: |-
+      {
+        "days": 2,
+        "reveal_time": "2026-05-31T15:14:47Z"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true

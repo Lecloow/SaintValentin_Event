@@ -1,0 +1,23 @@
+info:
+  name: ImportData
+  type: http
+  seq: 16
+
+http:
+  method: POST
+  url: "{{baseUrl}}/admin/importData"
+  body:
+    type: multipart-form
+    data:
+      - name: file
+        type: file
+        value:
+          - /Users/thomasconchon/Documents/Affinities short.xlsx
+  auth: inherit
+
+settings:
+  encodeUrl: true
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
+  forwardAuthorizationHeader: true
